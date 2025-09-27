@@ -40,7 +40,7 @@ class LLamaQueryGenerator:
                 # bnb_4bit_compute_dtype=torch.bfloat16,
                 # bnb_4bit_use_double_quant=True,
             ),
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map=DEVICE,
         )
 
