@@ -7,12 +7,13 @@ import torch
 from datasets import Dataset
 from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 from transformers import (
-    LlamaForCausalLM,
-    LlamaTokenizer,
+    AutoModelForCausalLM,
+    AutoTokenizer,
     TrainerCallback,
     Trainer,
     TrainingArguments,
-    DataCollatorForSeq2Seq
+    DataCollatorForSeq2Seq,
+    BitsAndBytesConfig
 )
 
 from src.utils.defaults import DEVICE, LLAMA_DIR, LLAMA_HUGGINGFACE_CHECKPOINT, DEEP_IMPACT_DIR
@@ -37,14 +38,14 @@ class ProfilerCallback(TrainerCallback):
 
 class FineTuner:
     def __init__(self, checkpoint_dir: Union[str, Path], dataset_path: Union[str, Path], output_dir: Union[str, Path],
-                 lr: float, epochs: int, batch_size: int, gradient_accumulation_steps: int, save_steps: int,
-                 save_total_limit: int, logging_dir: Union[str, Path], logging_steps: int, enable_profiler: bool,
-                 seed: int):
+                lr: float, epochs: int, batch_size: int, gradient_accumulation_steps: int, save_steps: int,
+                save_total_limit: int, logging_dir: Union[str, Path], logging_steps: int, enable_profiler: bool,
+                seed: int):
         self.enable_profiler = enable_profiler
         self.logging_dir = Path(logging_dir)
         self.output_dir = Path(output_dir)
 
-        self.tokenizer = LlamaTokenizer.from_pretrained(checkpoint_dir)
+        self.tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
         self.tokenizer.pad_token_id = 0  # making it different from the eos token
 
         self.dataset = self._load_dataset(dataset_path)
@@ -90,11 +91,17 @@ class FineTuner:
 
     @staticmethod
     def _load_model_and_create_peft_config(checkpoint_dir: Union[str, Path]):
-        model = LlamaForCausalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             checkpoint_dir,
-            load_in_8bit=True,
+            # load_in_8bit=True,
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                # bnb_4bit_use_double_quant=True,
+            ),
             device_map=DEVICE,
-            torch_dtype=torch.float16
+            dtype=torch.float16
         )
         model.train()
         model = prepare_model_for_kbit_training(model)
@@ -141,7 +148,9 @@ class FineTuner:
             self.model.config.use_cache = False
 
             trainer.train()
-            self.model.save_pretrained(str(self.output_dir))
+            # self.model.save_pretrained(str(self.output_dir))
+            # Saving the PEFT adapter, not the full model
+            trainer.save_model(self.output_dir)
 
 
 if __name__ == "__main__":
