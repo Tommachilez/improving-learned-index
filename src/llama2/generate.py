@@ -6,7 +6,7 @@ from typing import List, Optional
 import torch
 from peft import PeftModel, PeftConfig
 from tqdm import tqdm
-from transformers import LlamaForCausalLM, LlamaTokenizer, BitsAndBytesConfig, T5ForConditionalGeneration, T5Tokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, T5ForConditionalGeneration, T5Tokenizer
 
 from src.utils.datasets import CollectionParser
 from src.utils.defaults import (
@@ -28,11 +28,11 @@ class LLamaQueryGenerator:
     def __init__(self, llama_path: str, max_tokens, peft_path: Optional[str] = None):
         self.llama_path = llama_path
         self.max_tokens = max_tokens
-        self.tokenizer = LlamaTokenizer.from_pretrained(self.llama_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.llama_path)
         self.tokenizer.pad_token_id = 0  # making it different from the eos token
         self.tokenizer.padding_side = 'left'
 
-        self.model = LlamaForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.llama_path,
             quantization_config=BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -63,7 +63,7 @@ class LLamaQueryGenerator:
 
     @torch.no_grad()
     def prompt_and_tokenize(self, documents: List[str]):
-        prompts = [f'Predict possible search queries for the following document:\n{document}' for document in
+        prompts = [f'Predict possible search queries for the following document:\n{document}\n---\n' for document in
                    documents]
         encoded = self.tokenizer.batch_encode_plus(prompts, return_tensors='pt', padding=True,
                                                    max_length=self.max_tokens, truncation=True)
