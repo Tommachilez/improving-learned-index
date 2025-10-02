@@ -7,13 +7,13 @@ import torch
 from datasets import Dataset
 from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
+    AutoModelForCausalLM, # Changed from LlamaForCausalLM for better compatibility
+    AutoTokenizer,      # Changed from LlamaTokenizer
+    BitsAndBytesConfig, # Added for 4-bit quantization
     TrainerCallback,
     Trainer,
     TrainingArguments,
-    DataCollatorForSeq2Seq,
-    BitsAndBytesConfig
+    DataCollatorForSeq2Seq
 )
 
 from src.utils.defaults import DEVICE, LLAMA_DIR, LLAMA_HUGGINGFACE_CHECKPOINT, DEEP_IMPACT_DIR
@@ -21,10 +21,11 @@ from src.utils.defaults import DEVICE, LLAMA_DIR, LLAMA_HUGGINGFACE_CHECKPOINT, 
 LORA_CONFIG = {
     'task_type': TaskType.CAUSAL_LM,
     'inference_mode': False,
-    'r': 8,
+    'r': 16,  # Increased rank for better performance
     'lora_alpha': 32,
     'lora_dropout': 0.05,
-    'target_modules': ['q_proj', 'v_proj']
+    # Target more layers for better fine-tuning
+    'target_modules': ['q_proj', 'k_proj', 'v_proj', 'o_proj']
 }
 
 
@@ -38,9 +39,9 @@ class ProfilerCallback(TrainerCallback):
 
 class FineTuner:
     def __init__(self, checkpoint_dir: Union[str, Path], dataset_path: Union[str, Path], output_dir: Union[str, Path],
-                lr: float, epochs: int, batch_size: int, gradient_accumulation_steps: int, save_steps: int,
-                save_total_limit: int, logging_dir: Union[str, Path], logging_steps: int, enable_profiler: bool,
-                seed: int):
+                 lr: float, epochs: int, batch_size: int, gradient_accumulation_steps: int, save_steps: int,
+                 save_total_limit: int, logging_dir: Union[str, Path], logging_steps: int, enable_profiler: bool,
+                 seed: int):
         self.enable_profiler = enable_profiler
         self.logging_dir = Path(logging_dir)
         self.output_dir = Path(output_dir)
@@ -55,13 +56,14 @@ class FineTuner:
         self.profiler, self.profiler_callback = self._setup_profiler()
         self.training_args = TrainingArguments(
             seed=seed,
-            optim='adamw_torch_fused',
+            optim='paged_adamw_32bit', # Recommended optimizer for QLoRA
             output_dir=str(output_dir),
             overwrite_output_dir=True,
-            bf16=True,  # use bf16 if available
+            bf16=torch.cuda.is_bf16_supported(), # Check for bf16 support
+            fp16=not torch.cuda.is_bf16_supported(),
             per_device_train_batch_size=batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            gradient_checkpointing=False,
+            gradient_checkpointing=True, # Enable gradient checkpointing for memory savings
             learning_rate=lr,
             num_train_epochs=epochs,
 
@@ -71,6 +73,7 @@ class FineTuner:
             logging_steps=logging_steps,
 
             # saving
+            save_strategy='steps',
             save_steps=save_steps,
             save_total_limit=save_total_limit,
         )
@@ -91,17 +94,20 @@ class FineTuner:
 
     @staticmethod
     def _load_model_and_create_peft_config(checkpoint_dir: Union[str, Path]):
+        # --- REVISED: Use 4-bit quantization (QLoRA) ---
+        compute_dtype = getattr(torch, "bfloat16")
+        
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=True,
+        )
+        
         model = AutoModelForCausalLM.from_pretrained(
             checkpoint_dir,
-            # load_in_8bit=True,
-            quantization_config=BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16,
-                # bnb_4bit_use_double_quant=True,
-            ),
-            device_map=DEVICE,
-            dtype=torch.float16
+            quantization_config=bnb_config,
+            device_map="auto" # Automatically handle device mapping
         )
         model.train()
         model = prepare_model_for_kbit_training(model)
@@ -145,12 +151,10 @@ class FineTuner:
                 ),
                 callbacks=[self.profiler_callback] if self.enable_profiler else [],
             )
-            self.model.config.use_cache = False
+            # self.model.config.use_cache = False
 
             trainer.train()
-            # self.model.save_pretrained(str(self.output_dir))
-            # Saving the PEFT adapter, not the full model
-            trainer.save_model(self.output_dir)
+            self.model.save_pretrained(str(self.output_dir))
 
 
 if __name__ == "__main__":
