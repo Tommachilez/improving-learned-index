@@ -65,6 +65,7 @@ class FineTuner:
             gradient_accumulation_steps=gradient_accumulation_steps,
             gradient_checkpointing=True, # Enable gradient checkpointing for memory savings
             learning_rate=lr,
+            lr_scheduler_type='cosine',
             num_train_epochs=epochs,
 
             # logging
