@@ -63,7 +63,7 @@ class LLamaQueryGenerator:
 
     @torch.no_grad()
     def prompt_and_tokenize(self, documents: List[str]):
-        prompts = [f'Predict possible search queries for the following document:\n{document}\n---\n' for document in
+        prompts = [f'Dự đoán các truy vấn tìm kiếm có thể có cho tài liệu sau đây:\n{document}\n---\n' for document in
                    documents]
         encoded = self.tokenizer.batch_encode_plus(prompts, return_tensors='pt', padding=True,
                                                    max_length=self.max_tokens, truncation=True)
@@ -82,8 +82,8 @@ class LLamaQueryGenerator:
 class T5QueryGenerator:
     def __init__(self, max_tokens):
         self.max_tokens = max_tokens
-        self.tokenizer = T5Tokenizer.from_pretrained('castorini/doc2query-t5-base-msmarco')
-        self.model = T5ForConditionalGeneration.from_pretrained('castorini/doc2query-t5-base-msmarco')
+        self.tokenizer = T5Tokenizer.from_pretrained('doc2query/msmarco-vietnamese-mt5-base-v1')
+        self.model = T5ForConditionalGeneration.from_pretrained('doc2query/msmarco-vietnamese-mt5-base-v1')
         self.model.to(DEVICE)
         self.model.eval()
 

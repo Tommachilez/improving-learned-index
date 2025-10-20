@@ -128,14 +128,34 @@ class FineTuner:
         return Dataset.from_generator(loader)
 
     def generate_prompt_and_tokenize(self, document: str, query: str = ''):
-        prompt = f'Predict possible search queries for the following document:\n{document}\n---\n'
+        prompt = f'Dự đoán các truy vấn tìm kiếm có thể có cho tài liệu sau đây:\n{document}\n---\n'
+        full_text = prompt + query + self.tokenizer.eos_token
+        encoded = self.tokenizer(full_text, truncation=True, max_length=2048)
+
+        # if query:
+        #     prompt += query + self.tokenizer.eos_token
+
+        # encoded = self.tokenizer(prompt)
+
+        # # shifting by 1 happens inside the model
+        # encoded['labels'] = encoded['input_ids'].copy()
+
         if query:
-            prompt += query + self.tokenizer.eos_token
+            # Tokenize the prompt part *without* the query to find its length
+            prompt_only_encoded = self.tokenizer(prompt, truncation=True, max_length=2048)
+            prompt_len = len(prompt_only_encoded['input_ids'])
 
-        encoded = self.tokenizer(prompt)
+            # Create labels: default to -100 (ignore index)
+            labels = [-100] * len(encoded['input_ids'])
 
-        # shifting by 1 happens inside the model
-        encoded['labels'] = encoded['input_ids'].copy()
+            # Only set labels for the query part
+            labels[prompt_len:] = encoded['input_ids'][prompt_len:]
+
+            encoded['labels'] = labels
+        else:
+            # Handle cases with no query if necessary, e.g., for inference
+            encoded['labels'] = encoded['input_ids'].copy()
+
         return encoded
 
     def train(self):
