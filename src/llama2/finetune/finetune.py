@@ -152,7 +152,7 @@ class FineTuner:
                 ),
                 callbacks=[self.profiler_callback] if self.enable_profiler else [],
             )
-            # self.model.config.use_cache = False
+            self.model.config.use_cache = False
 
             trainer.train()
             self.model.save_pretrained(str(self.output_dir))
