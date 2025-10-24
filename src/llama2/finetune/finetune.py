@@ -65,7 +65,7 @@ class FineTuner:
             gradient_accumulation_steps=gradient_accumulation_steps,
             gradient_checkpointing=True, # Enable gradient checkpointing for memory savings
             learning_rate=lr,
-            lr_scheduler_type='cosine',
+            # lr_scheduler_type='cosine',
             num_train_epochs=epochs,
 
             # logging
@@ -129,8 +129,6 @@ class FineTuner:
 
     def generate_prompt_and_tokenize(self, document: str, query: str = ''):
         prompt = f'Dự đoán các truy vấn tìm kiếm có thể có cho tài liệu sau đây:\n{document}\n---\n'
-        full_text = prompt + query + self.tokenizer.eos_token
-        encoded = self.tokenizer(full_text, truncation=True, max_length=2048)
 
         # if query:
         #     prompt += query + self.tokenizer.eos_token
@@ -140,23 +138,39 @@ class FineTuner:
         # # shifting by 1 happens inside the model
         # encoded['labels'] = encoded['input_ids'].copy()
 
-        if query:
-            # Tokenize the prompt part *without* the query to find its length
-            prompt_only_encoded = self.tokenizer(prompt, truncation=True, max_length=2048)
-            prompt_len = len(prompt_only_encoded['input_ids'])
+        # 1. Tokenize prompt and query SEPARATELY.
+        #    Do not add special tokens to the prompt, as it's not the end of the sequence.
+        prompt_encoding = self.tokenizer(prompt, add_special_tokens=False)
 
-            # Create labels: default to -100 (ignore index)
-            labels = [-100] * len(encoded['input_ids'])
+        #    Add the eos token to the query, as it marks the end of the generation.
+        query_encoding = self.tokenizer(query + self.tokenizer.eos_token, add_special_tokens=False)
 
-            # Only set labels for the query part
-            labels[prompt_len:] = encoded['input_ids'][prompt_len:]
+        # 2. Combine them to create the full input and label sequences
+        #    We add the BOS token (tokenizer.bos_token_id) because we discard it above.
+        input_ids = [self.tokenizer.bos_token_id] + prompt_encoding['input_ids'] + query_encoding['input_ids']
 
-            encoded['labels'] = labels
-        else:
-            # Handle cases with no query if necessary, e.g., for inference
-            encoded['labels'] = encoded['input_ids'].copy()
+        #    Create labels: -100 for the prompt part (including BOS), and real tokens for the query part.
+        labels = ([-100] * (len(prompt_encoding['input_ids']) + 1)) + query_encoding['input_ids']
 
-        return encoded
+        # 3. NOW truncate the combined sequences from the RIGHT
+        #    This is crucial. We must ensure input_ids and labels are truncated the same way.
+        max_length = 2048
+        if len(input_ids) > max_length:
+            input_ids = input_ids[:max_length]
+            labels = labels[:max_length]
+
+        # 4. Create the attention mask
+        attention_mask = [1] * len(input_ids)
+
+        # 5. The tokenizer's __call__ method (used in your original code) would also pad.
+        #    We must replicate that padding for the collator. The DataCollator will handle this,
+        #    but we must ensure the `return` is a dict.
+
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': labels
+        }
 
     def train(self):
         with self.profiler:

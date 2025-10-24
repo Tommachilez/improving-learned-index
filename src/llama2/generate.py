@@ -68,11 +68,11 @@ class LLamaQueryGenerator:
         encoded = self.tokenizer.batch_encode_plus(prompts, return_tensors='pt', padding=True,
                                                    max_length=self.max_tokens, truncation=True)
 
-        for input_id in encoded['input_ids']:
-            # Check if last three items are not [13, 5634, 13] i.e. \n---\n
-            if not torch.equal(input_id[-3:], torch.tensor([13, 5634, 13])):
-                # Replace them
-                input_id[-3:] = torch.tensor([13, 5634, 13])
+        # for input_id in encoded['input_ids']:
+        #     # Check if last three items are not [13, 5634, 13] i.e. \n---\n
+        #     if not torch.equal(input_id[-3:], torch.tensor([13, 5634, 13])):
+        #         # Replace them
+        #         input_id[-3:] = torch.tensor([13, 5634, 13])
 
         encoded['input_ids'] = encoded['input_ids'].to(DEVICE)
         encoded['attention_mask'] = encoded['attention_mask'].to(DEVICE)
