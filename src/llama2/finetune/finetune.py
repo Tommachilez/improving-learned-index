@@ -25,7 +25,8 @@ LORA_CONFIG = {
     'lora_alpha': 32,
     'lora_dropout': 0.05,
     # Target more layers for better fine-tuning
-    'target_modules': ['q_proj', 'k_proj', 'v_proj', 'o_proj']
+    'target_modules': ['q_proj', 'k_proj', 'v_proj', 'o_proj', 
+                       'gate_proj', 'up_proj', 'down_proj']
 }
 
 
@@ -67,6 +68,7 @@ class FineTuner:
             learning_rate=lr,
             # lr_scheduler_type='cosine',
             num_train_epochs=epochs,
+            max_grad_norm=1.0,  # smoothen gradient updates
 
             # logging
             logging_strategy='steps',
