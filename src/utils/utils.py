@@ -1,9 +1,18 @@
 import re
 from typing import List
+from underthesea import word_tokenize, text_normalize
 
 
 def get_term_set(text):
-    return set(re.sub(r'[^\w\s]', ' ', text).lower().split())
+    # 1. Normalize the text (e.g., remove diacritics, standardize punctuation)
+    #    Note: text_normalize also lowercases by default.
+    normalized_text = text_normalize(text)
+
+    # 2. Tokenize the normalized text.
+    #    word_tokenize returns a list of tokens (words and compound phrases).
+    tokens = word_tokenize(normalized_text, format="text").split()
+    # return set(re.sub(r'[^\w\s]', ' ', text).lower().split())
+    return set(tokens)
 
 
 def get_unique_query_terms(query_list, passage):
