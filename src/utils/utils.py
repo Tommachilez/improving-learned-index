@@ -8,9 +8,14 @@ def get_term_set(text):
     #    Note: text_normalize also lowercases by default.
     normalized_text = text_normalize(text)
 
-    # 2. Tokenize the normalized text.
+    # 2. NEW: Remove special characters and punctuation
+    #    This regex keeps only word characters (including Vietnamese accented chars)
+    #    and whitespace, replacing all other characters with a space.
+    cleaned_text = re.sub(r'[^\w\s]', ' ', normalized_text)
+
+    # 3. Tokenize the normalized text.
     #    word_tokenize returns a list of tokens (words and compound phrases).
-    tokens = word_tokenize(normalized_text, format="text").split()
+    tokens = word_tokenize(cleaned_text, format="text").split()
     # return set(re.sub(r'[^\w\s]', ' ', text).lower().split())
     return set(tokens)
 
