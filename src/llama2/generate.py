@@ -137,7 +137,7 @@ if __name__ == "__main__":
 
     # NEW FEATURE: Add --num_doc flag
     parser.add_argument('--num_doc', type=int, default=None,
-                        help='Number of new documents to process in this run. Stops after reaching this number.')
+                        help='The total number of documents to process from the collection.')
 
     # NEW FEATURE: Add --continue_processing flag
     parser.add_argument('--continue_processing', action='store_true',
@@ -181,12 +181,15 @@ if __name__ == "__main__":
 
         # NEW FEATURE: Adjust tqdm total based on --num_doc
         print("Starting processing...")
-        pbar = tqdm(f, total=args.num_doc, desc="Processing new documents")
+        pbar = tqdm(f,
+                    total=args.num_doc,
+                    desc="Processing documents",
+                    initial=docs_to_skip)
 
         for line in pbar:
             # NEW FEATURE: Check if we have processed enough documents for this run
-            if args.num_doc is not None and processed_doc_count >= args.num_doc:
-                print(f"\nReached --num_doc limit of {args.num_doc} new documents.")
+            if args.num_doc is not None and (docs_to_skip + processed_doc_count) >= args.num_doc:
+                print(f"\nReached --num_doc limit of {args.num_doc} total documents.")
                 break  # Stop processing
 
             doc_id, doc = CollectionParser.parse(line, args.collection_type)
