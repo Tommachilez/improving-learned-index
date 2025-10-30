@@ -135,18 +135,64 @@ if __name__ == "__main__":
     parser.add_argument('--top_p', type=float, default=DEFAULT_TOP_P)
     parser.add_argument('--peft_path', type=str, default=None)
 
+    # NEW FEATURE: Add --num_doc flag
+    parser.add_argument('--num_doc', type=int, default=None,
+                        help='Number of new documents to process in this run. Stops after reaching this number.')
+
+    # NEW FEATURE: Add --continue_processing flag
+    parser.add_argument('--continue_processing', action='store_true',
+                        help='Continue processing from the last saved doc. Requires --output_path to exist.')
+
     args = parser.parse_args()
+
+    # NEW FEATURE: Logic for --continue_processing
+    docs_to_skip = 0
+    if args.continue_processing:
+        if args.output_path.exists():
+            print(f"Resuming processing. Counting processed documents in {args.output_path}...")
+            with open(args.output_path, 'r', encoding='utf-8') as out_f:
+                # Count lines efficiently
+                docs_to_skip = sum(1 for _ in out_f)
+            print(f"Found {docs_to_skip} existing documents. Skipping these in the input file.")
+        else:
+            # Raise an error as requested, since the flag is invalid without the file
+            raise FileNotFoundError(
+                f"--continue_processing was set, but output file {args.output_path} does not exist."
+            )
 
     generator = LLamaQueryGenerator(llama_path=args.llama_path, max_tokens=args.max_tokens, peft_path=args.peft_path)
 
     batch = []
     ids = []
 
-    with open(args.collection_path, 'r') as f:
-        for line in tqdm(f):
+    # NEW FEATURE: Counter for --num_doc
+    processed_doc_count = 0
+
+    with open(args.collection_path, 'r', encoding="utf-8") as f:
+
+        # NEW FEATURE: Skip documents if resuming
+        if docs_to_skip > 0:
+            print(f"Skipping {docs_to_skip} documents...")
+            for _ in range(docs_to_skip):
+                # Read and discard lines
+                if next(f, None) is None:
+                    print("Warning: Reached end of input file while skipping.")
+                    break
+
+        # NEW FEATURE: Adjust tqdm total based on --num_doc
+        print("Starting processing...")
+        pbar = tqdm(f, total=args.num_doc, desc="Processing new documents")
+
+        for line in pbar:
+            # NEW FEATURE: Check if we have processed enough documents for this run
+            if args.num_doc is not None and processed_doc_count >= args.num_doc:
+                print(f"\nReached --num_doc limit of {args.num_doc} new documents.")
+                break  # Stop processing
+
             doc_id, doc = CollectionParser.parse(line, args.collection_type)
             batch.append(doc)
             ids.append(doc_id)
+            processed_doc_count += 1 # Count each document as it's added to the batch
 
             if len(batch) == args.batch_size:
                 generate_queries_and_save(args, generator, batch, ids)
