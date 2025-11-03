@@ -12,6 +12,7 @@ from src.deep_impact.training import Trainer, PairwiseTrainer, CrossEncoderTrain
 from src.deep_impact.training.distil_trainer import DistilMarginMSE, DistilKLLoss
 from src.utils.datasets import MSMarcoTriples, DistillationScores
 from src.deep_impact.evaluation.nano_beir_evaluator import NanoBEIREvaluator
+from src.utils.defaults import VNCORE_DIR
 
 
 def collate_fn(batch, model_cls=DeepImpact, max_length=None):
@@ -93,6 +94,7 @@ def run(
         save_every: int,
         save_best: bool,
         gradient_accumulation_steps: int,
+        vncorenlp_path: Union[str, Path],
         pairwise: bool = False,
         cross_encoder: bool = False,
         distil_mse: bool = False,
@@ -156,6 +158,8 @@ def run(
     model_cls.tokenizer.enable_truncation(max_length=max_length, strategy='longest_first')
     model_cls.tokenizer.enable_padding(length=max_length)
 
+    model_cls._vncorenlp_path = vncorenlp_path
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
     evaluator = NanoBEIREvaluator(batch_size=64, verbose=False)
@@ -192,6 +196,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_every", type=int, default=20000, help="Save checkpoint every n steps")
     parser.add_argument("--save_best", action="store_true", help="Save the best model")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Gradient accumulation steps")
+    parser.add_argument("--vncorenlp_path", type=Path, default=VNCORE_DIR, help="Path to VnCoreNLP model folder (for Vietnamese processing)")
     parser.add_argument("--pairwise", action="store_true", help="Use pairwise training")
     parser.add_argument("--cross_encoder", action="store_true", help="Use cross encoder model")
     parser.add_argument("--distil_mse", action="store_true", help="Use distillation loss with Mean Squared Error")
