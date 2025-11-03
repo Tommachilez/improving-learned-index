@@ -31,8 +31,7 @@ class DeepImpact(RobertaPreTrainedModel):
             save_dir = str(cls._vncorenlp_path) if cls._vncorenlp_path else None
             cls._vncorenlp = py_vncorenlp.VnCoreNLP(
                 save_dir=save_dir,
-                annotators=["wseg"],
-                quiet=True
+                annotators=["wseg"]
             )
             print(f"VnCoreNLP (wseg) initialized. Model path: {save_dir}")
         return cls._vncorenlp
