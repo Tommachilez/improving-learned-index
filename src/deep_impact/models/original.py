@@ -137,7 +137,7 @@ class DeepImpact(RobertaPreTrainedModel):
             segmented_sents = []
 
         # Flatten the list of lists into a single list of terms
-        query_terms = [term for sent in segmented_sents for term in sent]
+        query_terms = [term for sent in segmented_sents for term in sent.split(' ')]
 
         # Filter out punctuation
         return set(filter(lambda x: x not in cls.punctuation, query_terms))
@@ -186,7 +186,7 @@ class DeepImpact(RobertaPreTrainedModel):
             print(f"VnCoreNLP error processing document: {e}. Document: '{document[:100]}...'")
             segmented_sents = []
             
-        document_terms = [term for sent in segmented_sents for term in sent]
+        document_terms = [term for sent in segmented_sents for term in sent.split(' ')]
 
         # 2. Encode using transformers tokenizer
         # We need an object that mimics the original `tokenizers.Encoding`
