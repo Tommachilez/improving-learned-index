@@ -18,7 +18,7 @@ class DeepImpact(RobertaPreTrainedModel):
     max_length = 512
     # tokenizer = tokenizers.Tokenizer.from_pretrained('bert-base-uncased')
     tokenizer = AutoTokenizer.from_pretrained('vinai/phobert-base-v2')
-    tokenizer.enable_truncation(max_length)
+    # tokenizer.enable_truncation(max_length)
     punctuation = set(string.punctuation)
 
     _vncorenlp = None
