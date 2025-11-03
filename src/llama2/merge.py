@@ -8,6 +8,9 @@ from src.utils.datasets import CollectionParser
 from src.utils.defaults import COLLECTION_TYPES
 from src.utils.utils import merge
 
+from src.deep_impact.models.original import DeepImpact
+from src.utils.defaults import VNCORE_DIR
+
 
 def merge_collection_and_expansions(collection_path: Path, collection_type: str, queries_path: Path, output: Path):
     # with open(collection_path) as f, open(queries_path) as q, open(output, 'w') as out:
@@ -31,8 +34,6 @@ def merge_collection_and_expansions(collection_path: Path, collection_type: str,
 
     print(f"Merging {q_len} queries from {queries_path} with {collection_path}...")
 
-    # NEW: Reverted to the simpler and correct zip() logic.
-    # This works because queries_path is always an in-order prefix of collection_path.
     with open(collection_path, 'r', encoding='utf-8') as f, \
          open(queries_path, 'r', encoding='utf-8') as q, \
          open(output, 'w', encoding='utf-8') as out:
@@ -53,8 +54,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Collection with generated queries')
     parser.add_argument('--collection_path', type=Path)
     parser.add_argument('--collection_type', type=str, choices=COLLECTION_TYPES)
+    parser.add_argument("--vncorenlp_path", type=Path, default=VNCORE_DIR, 
+                        help="Path to VnCoreNLP model folder (for Vietnamese processing)")
     parser.add_argument('--queries_path', type=Path)
     parser.add_argument('--output_path', type=Path)
     args = parser.parse_args()
+
+    DeepImpact._vncorenlp_path = args.vncorenlp_path
 
     merge_collection_and_expansions(args.collection_path, args.collection_type, args.queries_path, args.output_path)

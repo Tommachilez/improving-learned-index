@@ -1,29 +1,20 @@
 import re
 from typing import List
-from underthesea import word_tokenize, text_normalize
-
-
-def get_term_set(text):
-    # 1. Normalize the text (e.g., remove diacritics, standardize punctuation)
-    #    Note: text_normalize also lowercases by default.
-    normalized_text = text_normalize(text)
-
-    # 2. NEW: Remove special characters and punctuation
-    #    This regex keeps only word characters (including Vietnamese accented chars)
-    #    and whitespace, replacing all other characters with a space.
-    cleaned_text = re.sub(r'[^\w\s]', ' ', normalized_text)
-
-    # 3. Tokenize the normalized text.
-    #    word_tokenize returns a list of tokens (words and compound phrases).
-    tokens = word_tokenize(cleaned_text, format="text").split()
-    # return set(re.sub(r'[^\w\s]', ' ', text).lower().split())
-    return set(tokens)
+from src.deep_impact.models.original import DeepImpact
 
 
 def get_unique_query_terms(query_list, passage):
-    terms = get_term_set(passage)
-    query_terms = get_term_set(' '.join(query_list))
-    return query_terms.difference(terms)
+    model_cls = DeepImpact
+
+    # 1. Get query terms using the model's query processor
+    query_terms = model_cls.process_query(' '.join(query_list))
+
+    # 2. Get document terms from the model's document processor
+    #    The process_document method returns (encoding, term_to_token_map)
+    _ , doc_term_map = model_cls.process_document(passage)
+    passage_terms = set(doc_term_map.keys())
+
+    return query_terms.difference(passage_terms)
 
 
 def merge(document: str, queries: List[str]) -> str:
