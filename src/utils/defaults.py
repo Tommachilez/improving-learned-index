@@ -17,6 +17,8 @@ BATCH_SIZE = 32
 LLAMA_DIR = DATA_DIR / 'llama2'
 LLAMA_HUGGINGFACE_CHECKPOINT = LLAMA_DIR / 'models_hf' / '7B'
 
+VNCORE_DIR = DATA_DIR / 'vncorenlp_models'
+
 INVERTED_INDEX_VOCAB = 'vocab.txt'
 INVERTED_INDEX_INDEX = 'inverted_index.idx'
 INVERTED_INDEX_DATA = 'inverted_index.dat'
