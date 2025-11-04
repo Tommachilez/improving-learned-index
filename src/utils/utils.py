@@ -9,10 +9,8 @@ def get_unique_query_terms(query_list, passage):
     # 1. Get query terms using the model's query processor
     query_terms = model_cls.process_query(' '.join(query_list))
 
-    # 2. Get document terms from the model's document processor
-    #    The process_document method returns (encoding, term_to_token_map)
-    _ , doc_term_map = model_cls.process_document(passage)
-    passage_terms = set(doc_term_map.keys())
+    # 2. Get document terms using THE SAME query processor for consistency
+    passage_terms = model_cls.process_query(passage)
 
     return query_terms.difference(passage_terms)
 

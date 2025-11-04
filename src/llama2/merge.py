@@ -27,7 +27,7 @@ def merge_collection_and_expansions(collection_path: Path, collection_type: str,
     q_len = 0
     with open(queries_path, 'r', encoding='utf-8') as q_check:
         q_len = sum(1 for _ in q_check)
-    
+
     if q_len == 0:
         print("Queries file is empty. Nothing to merge.")
         return
