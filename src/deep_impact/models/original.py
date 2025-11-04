@@ -10,6 +10,7 @@ import torch.nn as nn
 # from transformers import BertPreTrainedModel, BertModel
 from transformers import RobertaPreTrainedModel, RobertaModel, AutoTokenizer
 import py_vncorenlp
+from underthesea import text_normalize
 
 from src.utils.checkpoint import ModelCheckpoint
 
@@ -127,7 +128,7 @@ class DeepImpact(RobertaPreTrainedModel):
         rdrsegmenter = cls.get_vncorenlp()
 
         # Lowercase to match the original's uncased logic
-        query = query.lower()
+        query = text_normalize(query.lower())
 
         # vncorenlp.word_segment returns List[List[str]] (list of sentences, each a list of words)
         try:
@@ -173,11 +174,11 @@ class DeepImpact(RobertaPreTrainedModel):
         #             and i in term_index_to_token_index:
         #         filtered_term_to_token_index[term] = term_index_to_token_index[i]
         # return encoded, filtered_term_to_token_index
-        
+
         vncorenlp = cls.get_vncorenlp()
-        
+
         # Lowercase to match the original's uncased logic
-        document = document.lower()
+        document = text_normalize(document.lower())
 
         # 1. Get pre-tokenized terms from VnCoreNLP
         try:
@@ -185,13 +186,13 @@ class DeepImpact(RobertaPreTrainedModel):
         except Exception as e:
             print(f"VnCoreNLP error processing document: {e}. Document: '{document[:100]}...'")
             segmented_sents = []
-            
+
         document_terms = [term for sent in segmented_sents for term in sent.split(' ')]
 
         # 2. Encode using transformers tokenizer
         # We need an object that mimics the original `tokenizers.Encoding`
         # It must have .ids, .attention_mask, .type_ids, and .tokens
-        
+
         encoded = cls.tokenizer.encode_plus(
             document_terms,
             is_pretokenized=True,
