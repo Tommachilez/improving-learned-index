@@ -155,15 +155,16 @@ def run(
         model = model_cls.load(start_with)
     else:
         model = model_cls.load()
-    model_cls.tokenizer.enable_truncation(max_length=max_length, strategy='longest_first')
-    model_cls.tokenizer.enable_padding(length=max_length)
+    # model_cls.tokenizer.enable_truncation(max_length=max_length, strategy='longest_first')
+    # model_cls.tokenizer.enable_padding(length=max_length)
+    model_cls.tokenizer.model_max_length = max_length
 
     model_cls._vncorenlp_path = vncorenlp_path
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
     evaluator = NanoBEIREvaluator(batch_size=64, verbose=False)
-    
+
     trainer = trainer_cls(
         model=model,
         optimizer=optimizer,
@@ -204,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--in_batch_negatives", action="store_true", help="Use in-batch negatives")
     parser.add_argument("--start_with", type=Path, default=None, help="Start training with this checkpoint")
     parser.add_argument("--eval_every", type=int, default=500, help="Evaluate every n steps")
-    
+
 
     # required for distillation loss with Margin MSE
     parser.add_argument("--qrels_path", type=Path, default=None, help="Path to the qrels file")
