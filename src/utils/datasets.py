@@ -264,10 +264,11 @@ class DistillationScores:
             for qid in scores:
                 docs = list(scores[qid].items())
                 for i in range(0, len(docs), self.batch_size):
-                    if i + self.batch_size <= len(docs):
-                        lookup.append((qid, docs[i:i + self.batch_size]))
-                    else:
-                        break
+                    # if i + self.batch_size <= len(docs):
+                    #     lookup.append((qid, docs[i:i + self.batch_size]))
+                    # else:
+                    #     break
+                    lookup.append((qid, docs[i:i + self.batch_size]))
             return lookup
 
     @staticmethod
