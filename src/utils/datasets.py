@@ -80,6 +80,9 @@ class Collection:
     def __getitem__(self, pid):
         return self.collection[pid]
 
+    def __contains__(self, pid):
+        return pid in self.collection
+
     def __iter__(self):
         for pid in self.collection:
             yield pid, self.collection[pid]
@@ -281,7 +284,9 @@ class DistillationScores:
 
     def __getitem__(self, idx):
         qid, pid_score_list = self.dataset[idx]
-        return self.queries[qid], [(self.collection[pid], score) for pid, score in pid_score_list]
+        # return self.queries[qid], [(self.collection[pid], score) for pid, score in pid_score_list]
+        # This check filters out pids that are not in the collection
+        return self.queries[qid], [(self.collection[pid], score) for pid, score in pid_score_list if pid in self.collection]
 
 
 class RunFile:
