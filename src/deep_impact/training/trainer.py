@@ -79,7 +79,7 @@ class Trainer:
         self.model.train()
 
         self.criterion = torch.nn.CrossEntropyLoss()
-        scaler = torch.cuda.amp.GradScaler()
+        scaler = torch.amp.GradScaler('cuda')
 
         # Resume training if checkpoint exists i.e. step > 0
         remaining = len(self.train_data) - self.checkpoint_callback.step
