@@ -48,6 +48,14 @@ class DistilKLLoss:
 class DistilTrainer(Trainer):
     loss = DistilKLLoss()
 
+    def get_output_scores(self, batch):
+        input_ids, attention_mask, type_ids = self.get_input_tensors(batch['encoded_list'])
+        document_term_scores = self.model(input_ids, attention_mask, type_ids)
+
+        masks = batch['masks'].to(self.gpu_id)
+        # Return the flat list of scores, which is what the loss function expects
+        return (masks * document_term_scores).sum(dim=1).squeeze(-1)
+
     def evaluate_loss(self, outputs, batch):
         # distillation loss
         teacher_scores = batch['scores'].view(self.batch_size, -1).to(self.gpu_id)
