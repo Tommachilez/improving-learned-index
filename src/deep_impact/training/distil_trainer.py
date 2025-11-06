@@ -40,9 +40,39 @@ class DistilKLLoss:
         self.loss = torch.nn.KLDivLoss(reduction="none")
 
     def __call__(self, output, target):
-        student_scores = torch.log_softmax(output, dim=1)
-        teacher_scores = torch.softmax(target, dim=1)
-        return self.loss(student_scores, teacher_scores).sum(dim=1).mean(dim=0)
+        # student_scores = torch.log_softmax(output, dim=1)
+        # teacher_scores = torch.softmax(target, dim=1)
+        # return self.loss(student_scores, teacher_scores).sum(dim=1).mean(dim=0)
+
+        # Check the dimensionality of the input tensor
+        if output.dim() == 1:
+            # 1D Input (e.g., shape [5])
+            # We apply softmax along the only dimension (dim=0).
+            dim = 0
+            # For a 1D tensor, we sum all losses and take the mean.
+            reduction = lambda x: x.sum().mean()
+
+        elif output.dim() == 2:
+            # 2D Input (e.g., shape [2, 3])
+            # We apply softmax across the scores (dim=1).
+            dim = 1
+            # We sum the KL loss for each item in the batch (dim=1),
+            # then average those sums (dim=0).
+            reduction = lambda x: x.sum(dim=dim).mean(dim=0)
+
+        else:
+            raise ValueError(
+                f"DistilKLLoss expects 1D or 2D input, but got {output.dim()}D tensor."
+            )
+
+        student_scores = torch.log_softmax(output, dim=dim)
+        teacher_scores = torch.softmax(target, dim=dim)
+
+        # Apply the KLDivLoss
+        loss_tensor = self.loss(student_scores, teacher_scores)
+
+        # Apply the correct reduction based on the input shape
+        return reduction(loss_tensor)
 
 
 class DistilTrainer(Trainer):
