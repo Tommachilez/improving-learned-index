@@ -57,6 +57,8 @@ class DistilTrainer(Trainer):
         return (masks * document_term_scores).sum(dim=1).squeeze(-1)
 
     def evaluate_loss(self, outputs, batch):
-        # distillation loss
-        teacher_scores = batch['scores'].view(self.batch_size, -1).to(self.gpu_id)
+        # # distillation loss
+        # teacher_scores = batch['scores'].view(self.batch_size, -1).to(self.gpu_id)
+        # We need the teacher_scores tensor to have the same flat shape as the 'outputs' tensor.
+        teacher_scores = batch['scores'].to(self.gpu_id)
         return self.loss(outputs, teacher_scores)
