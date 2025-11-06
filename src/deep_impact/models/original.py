@@ -16,7 +16,8 @@ from src.utils.checkpoint import ModelCheckpoint
 
 
 class DeepImpact(RobertaPreTrainedModel):
-    max_length = 512
+    # max_length = 512
+    max_length = 256
     # tokenizer = tokenizers.Tokenizer.from_pretrained('bert-base-uncased')
     tokenizer = AutoTokenizer.from_pretrained('vinai/phobert-base-v2')
     # tokenizer.enable_truncation(max_length)
@@ -103,7 +104,7 @@ class DeepImpact(RobertaPreTrainedModel):
         :return: Tuple: Document Tokens, Mask with 1s corresponding to first tokens of document terms in the query
         """
         query_terms = cls.process_query(query)
-        encoded, term_to_token_index = cls.process_document(document)
+        encoded, term_to_token_index = cls.process_document(document, max_length=max_length)
 
         return encoded, cls.get_query_document_token_mask(query_terms, term_to_token_index, max_length)
 
@@ -144,7 +145,7 @@ class DeepImpact(RobertaPreTrainedModel):
         return set(filter(lambda x: x not in cls.punctuation, query_terms))
 
     @classmethod
-    def process_document(cls, document: str) -> Tuple[tokenizers.Encoding, Dict[str, int]]:
+    def process_document(cls, document: str, max_length: Optional[int] = None) -> Tuple[tokenizers.Encoding, Dict[str, int]]:
         """
         Encodes the document and maps each unique term (non-punctuation) to its corresponding first token's index.
         :param document: Document string
@@ -175,6 +176,9 @@ class DeepImpact(RobertaPreTrainedModel):
         #         filtered_term_to_token_index[term] = term_index_to_token_index[i]
         # return encoded, filtered_term_to_token_index
 
+        if max_length is None:
+            max_length = cls.max_length
+
         vncorenlp = cls.get_vncorenlp()
 
         # Lowercase to match the original's uncased logic
@@ -199,7 +203,7 @@ class DeepImpact(RobertaPreTrainedModel):
             add_special_tokens=True,
             padding='max_length',
             truncation=True,
-            max_length=cls.max_length,
+            max_length=max_length,
             return_tensors=None  # Get lists
         )
 
