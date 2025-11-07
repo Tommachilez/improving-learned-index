@@ -226,7 +226,7 @@ def main():
                         help="Path to the Vietnamese stopwords file.")
     parser.add_argument('--output_dir', type=Path, required=True,
                         help="Directory to store processed files.")
-    parser.add_argument('--chunk_size', type=int, default=50000,
+    parser.add_argument('--chunk_size', type=int, default=None,
                         help="Lines to process in one batch.")
 
     args = parser.parse_args()
