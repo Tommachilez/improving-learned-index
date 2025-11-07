@@ -1,6 +1,7 @@
 import sys
 import argparse
 import string
+import re
 import shutil
 from pathlib import Path
 from typing import Union
@@ -73,6 +74,8 @@ class VietnameseTextProcessor:
             processed_text = text_normalize(text.lower())
         except Exception:
             processed_text = text.lower()
+
+        processed_text = re.sub(r'[^\w\s]', '', processed_text)
 
         try:
             segmented_sents = rdrsegmenter.word_segment(processed_text)
