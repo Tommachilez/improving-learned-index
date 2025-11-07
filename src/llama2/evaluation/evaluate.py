@@ -31,7 +31,12 @@ def load_processed_documents(path: Path):
             for line in f:
                 parts = line.strip().split('\t')
                 if len(parts) == 2:
-                    yield {'docno': parts[0], 'text': parts[1]}
+                    # 1. Strip whitespace from the text
+                    docno = parts[0]
+                    text = parts[1].strip()
+                    # 2. Only yield if the text is not empty
+                    if text:
+                        yield {'docno': docno, 'text': text}
     except FileNotFoundError:
         print(f"Error: Processed collection file not found at {path}", file=sys.stderr)
         print("Please run the 'preprocess' script first.")
@@ -90,6 +95,16 @@ def main():
 
     # 3. Load data
     queries_df = load_processed_queries(processed_queries_path)
+
+    print(f"Loaded {len(queries_df)} queries.")
+    # Fill any potential NaN/None values with '', strip whitespace, and check if the query is empty
+    queries_df = queries_df[queries_df['query'].fillna('').str.strip() != '']
+    print(f"Filtered empty queries. {len(queries_df)} queries remaining.")
+
+    if queries_df.empty:
+        print("Error: No valid queries left after filtering. Aborting evaluation.", file=sys.stderr)
+        sys.exit(1)
+
     qrels_df = load_qrels_df(processed_qrels_path)
 
     # 4. Create Index

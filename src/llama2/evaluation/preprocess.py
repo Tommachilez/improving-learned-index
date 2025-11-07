@@ -4,7 +4,7 @@ import string
 import re
 import shutil
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 from tqdm import tqdm
 
 try:
@@ -21,6 +21,39 @@ except ImportError:
     VNCORE_DIR = None
 
 
+def _load_and_compile_stopwords(path: Union[str, Path]) -> Optional[re.Pattern]:
+    """
+    Internal helper function to load stopwords and compile them
+    into a single, efficient regex pattern.
+    """
+    try:
+        with open(path, "r", encoding='utf-8') as f:
+            # Read, lowercase, and strip whitespace from each stopword
+            stop_words = [line.strip().lower() for line in f.read().splitlines() if line.strip()]
+
+        if not stop_words:
+            print("Warning: Stopwords file was empty. No stopword removal will be applied.")
+            return None
+
+        # 1. Sort by length (longest first)
+        stop_words.sort(key=len, reverse=True)
+
+        # 2. Create the pattern: \b(word1|word2|nói riêng)\b
+        # \b ensures we match whole words only.
+        pattern_str = r"\b(" + "|".join(re.escape(word) for word in stop_words) + r")\b"
+
+        # 3. Compile the regex for maximum performance
+        # re.IGNORECASE is good practice, though we already .lower()
+        return re.compile(pattern_str, flags=re.IGNORECASE)
+
+    except FileNotFoundError:
+        print(f"Warning: Stopwords file not found at {path}. Skipping stopword removal.")
+        return None
+    except Exception as e:
+        print(f"Error loading stopwords: {e}")
+        return None
+
+
 def count_lines(filepath: Path) -> int:
     """Helper function to count lines for tqdm."""
     try:
@@ -35,10 +68,11 @@ class VietnameseTextProcessor:
     """
     Encapsulates VnCoreNLP loading and text processing logic.
     """
-    def __init__(self, model_path: Union[str, Path]):
+    def __init__(self, model_path: Union[str, Path], stopwords_path: Union[str, Path] = None):
         self.punctuation = set(string.punctuation)
         self.vncorenlp_path = model_path
         self._vncorenlp = None
+        self.stopword_pattern = None
 
         if not self.vncorenlp_path:
             print("Error: VnCoreNLP model path is not set.", file=sys.stderr)
@@ -46,6 +80,12 @@ class VietnameseTextProcessor:
 
         print(f"Initializing text processor with VnCoreNLP model path: {self.vncorenlp_path}")
         self.get_vncorenlp()
+
+        if stopwords_path:
+            print(f"Loading stopwords from: {stopwords_path}")
+            self.stopword_pattern = _load_and_compile_stopwords(stopwords_path)
+        else:
+            print("No stopwords path provided. Skipping stopword removal.")
 
     def get_vncorenlp(self):
         if self._vncorenlp is None:
@@ -70,12 +110,22 @@ class VietnameseTextProcessor:
 
     def process_text(self, text: str) -> str:
         rdrsegmenter = self.get_vncorenlp()
+
+        # 1. Normalize
         try:
             processed_text = text_normalize(text.lower())
         except Exception:
             processed_text = text.lower()
 
-        processed_text = re.sub(r'[^\w\s]', '', processed_text)
+        # 2. Remove all punctuation (This also fixes the / and ? errors)
+        processed_text = re.sub(r'[^\w\s]', '', processed_text, flags=re.UNICODE)
+
+        # 3. Remove stopwords using the pre-compiled regex
+        if self.stopword_pattern:
+            processed_text = self.stopword_pattern.sub(" ", processed_text)
+
+        # 4. Clean up extra whitespace
+        processed_text = re.sub(r"\s+", " ", processed_text).strip()
 
         try:
             segmented_sents = rdrsegmenter.word_segment(processed_text)
@@ -83,7 +133,7 @@ class VietnameseTextProcessor:
             segmented_sents = []
 
         query_terms = [term for sent in segmented_sents for term in sent.split(' ')]
-        filtered_terms = [term for term in query_terms if term not in self.punctuation and term.strip()]
+        filtered_terms = [term for term in query_terms if term.strip()]
         return ' '.join(filtered_terms)
 
 
@@ -99,6 +149,8 @@ def main():
                         help="Path to the evaluation qrels file (e.g., qrels.dev.tsv).")
     parser.add_argument('--vncorenlp_path', type=Path, default=VNCORE_DIR,
                         help="Path to VnCoreNLP model folder.")
+    parser.add_argument('--stopwords_path', type=Path, default=None,
+                        help="Path to the Vietnamese stopwords file.")
     parser.add_argument('--output_dir', type=Path, required=True,
                         help="Directory to store processed files.")
 
@@ -111,7 +163,10 @@ def main():
     print("--- STAGE 1: PREPROCESSING ---")
 
     # 1. Initialize Processor
-    processor = VietnameseTextProcessor(args.vncorenlp_path)
+    processor = VietnameseTextProcessor(
+        args.vncorenlp_path,
+        stopwords_path=args.stopwords_path
+    )
 
     # 2. Define output paths
     out_dir = args.output_dir
