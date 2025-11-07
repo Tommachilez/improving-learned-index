@@ -78,6 +78,10 @@ def main():
     )
     parser.add_argument('--output_dir', type=Path, required=True,
                         help="Directory containing the processed files from Stage 1.")
+    parser.add_argument('--batch_size', type=int, default=None,
+                        help="Batch size for evaluation.")
+    parser.add_argument('--verbose', action='store_true',
+                        help="Enable verbose logging.")
     args = parser.parse_args()
 
     print("--- STAGE 2: EVALUATION ---")
@@ -118,7 +122,7 @@ def main():
             stemmer=None,    # Crucial: Text is already processed
             stopwords=None,  # Crucial: Text is already processed
             overwrite=True,
-            verbose=True
+            verbose=args.verbose
         )
 
         index_ref = indexer.index(tqdm(doc_generator, total=total_docs, desc="Indexing documents"))
@@ -134,7 +138,7 @@ def main():
     bm25 = pt.terrier.Retriever(
         index,
         wmodel="BM25",
-        properties={"termpipelines": ""} # Crucial: Don't process queries
+        properties={"termpipelines": ""}
     )
 
     # 6. Evaluate
@@ -143,9 +147,10 @@ def main():
         [bm25],
         queries_df,
         qrels_df,
-        eval_metrics=["recip_rank", "recall_1000"],
+        eval_metrics=["recip_rank", "recall_10"],
+        batch_size=args.batch_size,
         names=["BM25_on_Expanded_Collection_VN"],
-        verbose=True
+        verbose=args.verbose
     )
 
     # 7. Save Results
