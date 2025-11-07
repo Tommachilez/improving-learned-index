@@ -170,12 +170,11 @@ def main():
     args = parser.parse_args()
 
     # --- 0. Setup ---
+    processor = VietnameseTextProcessor(args.vncorenlp_path)
     if not pt.java.started():
         pt.java.init()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-
-    processor = VietnameseTextProcessor(args.vncorenlp_path)
 
     # --- 1. Load Query/Qrels Data (as DataFrames) ---
     queries_df = load_queries_df(args.queries_path, processor)
