@@ -4,28 +4,25 @@ import argparse
 from pathlib import Path
 import pandas as pd
 import pyterrier as pt
+from tqdm import tqdm
 
-def load_expanded_documents(expanded_collection_path: Path) -> pd.DataFrame:
+
+def load_expanded_documents(expanded_collection_path: Path):
     """
-    Loads an expanded collection TSV file with schema {docno, text} 
-    and no headers, as requested.
+    Loads an expanded collection TSV file {docno, text} as a
+    generator of dictionaries for pt.IterDictIndexer.
     """
     print(f"Loading expanded documents from: {expanded_collection_path}")
     try:
-        df = pd.read_csv(
-            expanded_collection_path,
-            sep='\t',
-            header=None,
-            names=['docno', 'text'],
-            dtype={'docno': str, 'text': str} # Keep types consistent
-        )
-        # Ensure 'text' column has no NaN values, which can break indexing
-        df['text'] = df['text'].fillna('')
-        print(f"Loaded {len(df)} documents.")
-        return df
-    except pd.errors.EmptyDataError:
-        print(f"Error: The file {expanded_collection_path} is empty.")
-        sys.exit(1)
+        with open(expanded_collection_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                parts = line.strip().split('\t')
+                if len(parts) == 2:
+                    docno, text = parts
+                    yield {'docno': docno, 'text': text}
+                else:
+                    print(f"Skipping malformed line: {line.strip()}")
+
     except FileNotFoundError:
         print(f"Error: The file {expanded_collection_path} was not found.")
         sys.exit(1)
@@ -43,6 +40,7 @@ def load_queries_df(queries_path: Path) -> pd.DataFrame:
     )
     return df
 
+
 def load_qrels_df(qrels_path: Path) -> pd.DataFrame:
     """Loads dev qrels (qid, _, docno, label) into a DataFrame for PyTerrier."""
     print(f"Loading qrels from: {qrels_path}")
@@ -55,6 +53,16 @@ def load_qrels_df(qrels_path: Path) -> pd.DataFrame:
     )
     # Return only the columns PyTerrier needs
     return df[['qid', 'docno', 'label']]
+
+
+def count_lines(filepath: Path) -> int:
+    """Helper function to count lines for tqdm."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return sum(1 for _ in f)
+    except FileNotFoundError:
+        return 0
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -77,23 +85,35 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- 1. Load All Data (as DataFrames) ---
-    docs_df = load_expanded_documents(args.expanded_collection_path)
+    # --- 1. Load Query/Qrels Data (as DataFrames) ---
     queries_df = load_queries_df(args.queries_path)
     qrels_df = load_qrels_df(args.qrels_path)
 
     # --- 2. Create Index ---
-    # We evaluate one expanded collection, so we just need one index
     index_path_str = str(args.output_dir / "evaluation_index")
 
     if not os.path.exists(index_path_str + "/data.properties"):
         print(f"Index not found. Creating index at: {index_path_str}")
-        # Use pt.DFIndexer to index directly from the DataFrame
-        # This replaces the IterDictIndexer and document generator
-        indexer = pt.DFIndexer(index_path_str, overwrite=True)
 
-        # Pass the 'text' column for indexing and 'docno' as the docno
-        index_ref = indexer.index(docs_df["text"], docs_df["docno"])
+        # Create the generator for the documents
+        doc_generator = load_expanded_documents(args.expanded_collection_path)
+
+        # Get total number of docs for progress bar
+        total_docs = count_lines(args.expanded_collection_path)
+
+        indexer = pt.IterDictIndexer(
+            index_path_str,
+            stemmer=None,  # Default: EnglishStemmer
+            stopwords=None,  # Default: English stopwords
+            overwrite=True,
+            verbose=True
+        )
+
+        # Wrap generator in tqdm for progress
+        index_ref = indexer.index(
+            tqdm(doc_generator, total=total_docs, desc="Indexing documents"),
+            meta=['docno', 'text']
+        )
         print(f"Index created at: {index_ref.toString()}")
     else:
         print(f"Loading existing index from: {index_path_str}")
@@ -112,7 +132,7 @@ def main():
         [bm25],
         queries_df,
         qrels_df,
-        eval_metrics=["mrr_cut_10", "recall_1000"],
+        eval_metrics=["recip_rank_10", "recall_1000"],
         names=["BM25_on_Expanded_Collection"]
     )
 
