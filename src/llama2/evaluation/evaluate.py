@@ -129,7 +129,8 @@ def main():
         queries_df,
         qrels_df,
         eval_metrics=["recip_rank", "recall_1000"],
-        names=["BM25_on_Expanded_Collection_VN"]
+        names=["BM25_on_Expanded_Collection_VN"],
+        verbose=True
     )
 
     # 7. Save Results
