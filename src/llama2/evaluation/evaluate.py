@@ -23,6 +23,29 @@ def count_lines(filepath: Path) -> int:
         return 0
 
 
+def get_corpus_docnos(path: Path) -> set:
+    """Reads the processed collection and returns a set of valid docnos."""
+    print(f"Scanning collection for all valid docnos from: {path}")
+    docnos = set()
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                parts = line.strip().split('\t')
+                # Check for valid line and non-empty text
+                if len(parts) == 2 and parts[1].strip():
+                    docnos.add(parts[0])
+    except FileNotFoundError:
+        print(f"Error: Processed collection file not found at {path}", file=sys.stderr)
+        sys.exit(1)
+
+    if not docnos:
+        print("Error: No valid documents found in collection file.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Found {len(docnos)} valid documents in the corpus.")
+    return docnos
+
+
 def load_processed_documents(path: Path):
     """Loads the pre-processed collection.tsv for the indexer."""
     print(f"Loading processed documents from: {path}")
@@ -99,17 +122,28 @@ def main():
 
     # 3. Load data
     queries_df = load_processed_queries(processed_queries_path)
-
-    print(f"Loaded {len(queries_df)} queries.")
-    # Fill any potential NaN/None values with '', strip whitespace, and check if the query is empty
-    queries_df = queries_df[queries_df['query'].fillna('').str.strip() != '']
-    print(f"Filtered empty queries. {len(queries_df)} queries remaining.")
-
-    if queries_df.empty:
-        print("Error: No valid queries left after filtering. Aborting evaluation.", file=sys.stderr)
-        sys.exit(1)
-
     qrels_df = load_qrels_df(processed_qrels_path)
+    corpus_docnos = get_corpus_docnos(processed_collection_path)
+
+    # Filter Qrels: Keep only judgments for documents that are in our index
+    print(f"Original qrels count: {len(qrels_df)}")
+    qrels_df = qrels_df[qrels_df['docno'].isin(corpus_docnos)]
+    print(f"Filtered qrels (docno in corpus): {len(qrels_df)}")
+
+    # Filter Queries: Keep only queries that have at least one valid judgment
+    print(f"Original queries count: {len(queries_df)}")
+    # First, filter for non-empty query text
+    queries_df = queries_df[queries_df['query'].fillna('').str.strip() != '']
+    print(f"Filtered queries (non-empty text): {len(queries_df)}")
+
+    # Second, filter for queries present in the *filtered* qrels
+    valid_qids = set(qrels_df['qid'].unique())
+    queries_df = queries_df[queries_df['qid'].isin(valid_qids)]
+    print(f"Filtered queries (in valid qrels): {len(queries_df)}")
+
+    if queries_df.empty or qrels_df.empty:
+        print("Error: No valid queries or qrels left after filtering. Aborting.", file=sys.stderr)
+        sys.exit(1)
 
     # 4. Create Index
     if not os.path.exists(index_path_str + "/data.properties"):
