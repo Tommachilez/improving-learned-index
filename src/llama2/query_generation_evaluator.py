@@ -132,7 +132,7 @@ def main():
         [bm25],
         queries_df,
         qrels_df,
-        eval_metrics=["recip_rank_10", "recall_1000"],
+        eval_metrics=["recip_rank", "recall_1000"],
         names=["BM25_on_Expanded_Collection"]
     )
 
