@@ -2,33 +2,119 @@ import os
 import sys
 import argparse
 from pathlib import Path
+import string
+from typing import Union
+
 import pandas as pd
 import pyterrier as pt
 from tqdm import tqdm
+import py_vncorenlp
+from underthesea import text_normalize
+try:
+    from src.utils.defaults import VNCORE_DIR 
+except ImportError:
+    print("Warning: Could not import VNCORE_DIR.", file=sys.stderr)
+    VNCORE_DIR = None
 
 
-def load_expanded_documents(expanded_collection_path: Path):
+class VietnameseTextProcessor:
+    """
+    Encapsulates VnCoreNLP loading and text processing logic
+    to avoid global variables and improve maintainability.
+    """
+    def __init__(self, model_path: Union[str, Path]):
+        self.punctuation = set(string.punctuation)
+        self.vncorenlp_path = model_path
+        self._vncorenlp = None
+
+        if not self.vncorenlp_path:
+            print("Error: VnCoreNLP model path is not set.", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"Initializing text processor with VnCoreNLP model path: {self.vncorenlp_path}")
+        # Initialize the model immediately on creation
+        self.get_vncorenlp()
+
+    def get_vncorenlp(self):
+        """Initializes and returns the py_vncorenlp singleton instance."""
+        if self._vncorenlp is None:
+            save_dir = str(self.vncorenlp_path)
+
+            if not Path(save_dir).exists():
+                print(f"Error: VnCoreNLP path not found: {save_dir}", file=sys.stderr)
+                print("Please ensure the model is downloaded and the path is correct.", file=sys.stderr)
+                sys.exit(1)
+
+            print(f"Loading VnCoreNLP (wseg) from: {save_dir}")
+            try:
+                self._vncorenlp = py_vncorenlp.VnCoreNLP(
+                    save_dir=save_dir,
+                    annotators=["wseg"]
+                )
+            except Exception as e:
+                print(f"Error initializing VnCoreNLP: {e}", file=sys.stderr)
+                sys.exit(1)
+
+            print("VnCoreNLP loaded successfully.")
+        return self._vncorenlp
+
+    def process_text(self, text: str) -> str:
+        """
+        Processes text (query or document) using VnCoreNLP, normalization,
+        and punctuation removal, returning a space-joined string of terms.
+        """
+        rdrsegmenter = self.get_vncorenlp()
+
+        try:
+            processed_text = text_normalize(text.lower())
+        except Exception as e:
+            print(f"Warning: text_normalize failed for text: '{text[:50]}...'. Error: {e}", file=sys.stderr)
+            processed_text = text.lower() # Fallback
+
+        try:
+            segmented_sents = rdrsegmenter.word_segment(processed_text)
+        except Exception as e:
+            if not processed_text.strip():
+                segmented_sents = []
+            else:
+                print(f"Warning: VnCoreNLP error processing text: {e}. Text: '{processed_text[:50]}...'", file=sys.stderr)
+                segmented_sents = []
+
+        query_terms = [term for sent in segmented_sents for term in sent.split(' ')]
+
+        filtered_terms = [term for term in query_terms if term not in self.punctuation and term.strip()]
+        return ' '.join(filtered_terms)
+
+
+def load_expanded_documents(expanded_collection_path: Path, processor: VietnameseTextProcessor):
     """
     Loads an expanded collection TSV file {docno, text} as a
     generator of dictionaries for pt.IterDictIndexer.
+    
+    Applies the provided processor to the document text.
     """
-    print(f"Loading expanded documents from: {expanded_collection_path}")
+    print(f"Loading and processing expanded documents from: {expanded_collection_path}")
     try:
+        total_lines = count_lines(expanded_collection_path)
+        if total_lines == 0:
+            print(f"Warning: Document file is empty: {expanded_collection_path}", file=sys.stderr)
+            return
+
         with open(expanded_collection_path, 'r', encoding='utf-8') as f:
-            for line in f:
+            for line in tqdm(f, total=total_lines, desc="Processing documents"):
                 parts = line.strip().split('\t')
                 if len(parts) == 2:
                     docno, text = parts
-                    yield {'docno': docno, 'text': text}
+                    yield {'docno': docno, 'text': processor.process_text(text)}
                 else:
-                    print(f"Skipping malformed line: {line.strip()}")
+                    print(f"Skipping malformed line: {line.strip()}", file=sys.stderr)
 
     except FileNotFoundError:
         print(f"Error: The file {expanded_collection_path} was not found.")
         sys.exit(1)
 
 
-def load_queries_df(queries_path: Path) -> pd.DataFrame:
+def load_queries_df(queries_path: Path, processor: VietnameseTextProcessor) -> pd.DataFrame:
     """Loads dev queries (qid, query) into a DataFrame for PyTerrier."""
     print(f"Loading queries from: {queries_path}")
     df = pd.read_csv(
@@ -38,6 +124,8 @@ def load_queries_df(queries_path: Path) -> pd.DataFrame:
         names=['qid', 'query'],
         dtype=str
     )
+    print("Processing queries with VnCoreNLP...")
+    df['query'] = df['query'].apply(processor.process_text)
     return df
 
 
@@ -76,6 +164,8 @@ def main():
                         help="Path to the evaluation qrels file (e.g., qrels.dev.tsv).")
     parser.add_argument('--output_dir', type=Path, required=True,
                         help="Directory to store the generated index and the final results.csv.")
+    parser.add_argument('--vncorenlp_path', type=Path, default=VNCORE_DIR,
+                        help="Path to VnCoreNLP model folder (for Vietnamese processing)")
 
     args = parser.parse_args()
 
@@ -85,21 +175,20 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    processor = VietnameseTextProcessor(args.vncorenlp_path)
+
     # --- 1. Load Query/Qrels Data (as DataFrames) ---
-    queries_df = load_queries_df(args.queries_path)
+    queries_df = load_queries_df(args.queries_path, processor)
     qrels_df = load_qrels_df(args.qrels_path)
 
     # --- 2. Create Index ---
-    index_path_str = str(args.output_dir / "evaluation_index")
+    index_path_str = str(args.output_dir / "evaluation_index_vn")
 
     if not os.path.exists(index_path_str + "/data.properties"):
         print(f"Index not found. Creating index at: {index_path_str}")
 
         # Create the generator for the documents
-        doc_generator = load_expanded_documents(args.expanded_collection_path)
-
-        # Get total number of docs for progress bar
-        total_docs = count_lines(args.expanded_collection_path)
+        doc_generator = load_expanded_documents(args.expanded_collection_path, processor)
 
         indexer = pt.IterDictIndexer(
             index_path_str,
@@ -109,9 +198,8 @@ def main():
             verbose=True
         )
 
-        # Wrap generator in tqdm for progress
         index_ref = indexer.index(
-            tqdm(doc_generator, total=total_docs, desc="Indexing documents"),
+            doc_generator,
             meta=['docno', 'text']
         )
         print(f"Index created at: {index_ref.toString()}")
@@ -124,7 +212,8 @@ def main():
 
     # --- 3. Run BM25 Retrieval ---
     print("Running BM25 retrieval...")
-    bm25 = pt.terrier.Retriever(index, wmodel="BM25")
+    # Disable term pipelines to prevent stemming/stopword removal
+    bm25 = pt.terrier.Retriever(index, wmodel="BM25", properties={"termpipelines" : ""})
 
     # --- 4. Evaluate ---
     print("Running PyTerrier experiment...")
