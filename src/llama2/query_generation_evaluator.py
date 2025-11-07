@@ -72,8 +72,8 @@ def main():
     args = parser.parse_args()
 
     # --- 0. Setup ---
-    if not pt.started():
-        pt.init()
+    if not pt.java.started():
+        pt.java.init()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
