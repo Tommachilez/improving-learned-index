@@ -106,10 +106,7 @@ def main():
             verbose=True
         )
 
-        index_ref = indexer.index(
-            tqdm(doc_generator, total=total_docs, desc="Indexing documents"),
-            meta=['docno', 'text']
-        )
+        index_ref = indexer.index(tqdm(doc_generator, total=total_docs, desc="Indexing documents"))
         print(f"Index created at: {index_ref.toString()}")
     else:
         print(f"Loading existing index from: {index_path_str}")
