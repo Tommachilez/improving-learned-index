@@ -3,6 +3,7 @@ import argparse
 import string
 import re
 import shutil
+import pandas as pd
 from pathlib import Path
 from typing import Union, Optional
 from tqdm import tqdm
@@ -52,6 +53,78 @@ def _load_and_compile_stopwords(path: Union[str, Path]) -> Optional[re.Pattern]:
     except Exception as e:
         print(f"Error loading stopwords: {e}")
         return None
+
+
+def process_large_tsv(
+    input_path: Path,
+    output_path: Path,
+    preprocess_func: callable,
+    id_col_name: str,
+    text_col_name: str,
+    chunk_size: int
+):
+    """
+    Processes a large TSV file in chunks, supporting resumes.
+    - id_col_name: 'docno' or 'qid'
+    - text_col_name: 'text' or 'query'
+    """
+    print(f"Starting batch processing for: {input_path}")
+    print(f"  Output file: {output_path}")
+    print(f"  Chunk size (save_every): {chunk_size}")
+
+    # 1. Check for existing progress by counting lines in the output file
+    lines_processed = 0
+    if output_path.exists():
+        lines_processed = count_lines(output_path)
+        print(f"  Resuming from line {lines_processed + 1}...")
+
+    total_lines = count_lines(input_path)
+    if total_lines == 0:
+        print("Input file is empty or unreadable. Skipping.")
+        return
+
+    if lines_processed >= total_lines:
+        print("Output file is already complete. Skipping.")
+        return
+
+    # 2. Create a pandas iterator
+    reader = pd.read_csv(
+        input_path,
+        sep='\t',
+        header=None,
+        dtype=object,
+        keep_default_na=False,
+        chunksize=chunk_size,
+        skiprows=lines_processed,
+        names=[id_col_name, text_col_name]  # Assign column names
+    )
+
+    # 3. Open output file in 'append' (a) mode
+    with open(output_path, 'a', encoding='utf-8') as f_out:
+
+        # 4. Set up TQDM progress bar
+        with tqdm(total=total_lines, desc=f"Processing {input_path.name}", initial=lines_processed) as pbar:
+
+            # 5. Iterate over chunks
+            for chunk in reader:
+                # Fill NaN just in case
+                chunk = chunk.fillna("")
+
+                # Apply the processing function to the text column
+                chunk[text_col_name] = chunk[text_col_name].map(preprocess_func)
+
+                # Save the processed chunk to the output file
+                chunk.to_csv(
+                    f_out,
+                    sep='\t',
+                    index=False,
+                    header=False
+                )
+
+                # Update the progress bar
+                pbar.update(len(chunk))
+
+    print(f"Batch processing complete for: {input_path}")
 
 
 def count_lines(filepath: Path) -> int:
@@ -141,7 +214,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Stage 1: Preprocess collection, queries, and qrels using VnCoreNLP."
     )
-    parser.add_argument('--expanded_collection_path', type=Path, required=True,
+    parser.add_argument('--collection_path', type=Path, required=True,
                         help="Path to the pre-expanded collection file (TSV: docno, text).")
     parser.add_argument('--queries_path', type=Path, required=True,
                         help="Path to the evaluation queries file (e.g., queries.dev.tsv).")
@@ -153,6 +226,8 @@ def main():
                         help="Path to the Vietnamese stopwords file.")
     parser.add_argument('--output_dir', type=Path, required=True,
                         help="Directory to store processed files.")
+    parser.add_argument('--chunk_size', type=int, default=50000,
+                        help="Lines to process in one batch.")
 
     args = parser.parse_args()
 
@@ -176,32 +251,24 @@ def main():
     processed_qrels_path = out_dir / "processed_qrels.tsv"
 
     # 3. Process Collection
-    print(f"Processing collection: {args.expanded_collection_path}")
-    total_docs = count_lines(args.expanded_collection_path)
-    if total_docs > 0:
-        with open(args.expanded_collection_path, 'r', encoding='utf-8') as fin, \
-             open(processed_collection_path, 'w', encoding='utf-8') as fout:
-
-            for line in tqdm(fin, total=total_docs, desc="Processing documents"):
-                parts = line.strip().split('\t')
-                if len(parts) == 2:
-                    docno, text = parts
-                    fout.write(f"{docno}\t{processor.process_text(text)}\n")
-    print(f"Processed collection saved to: {processed_collection_path}")
+    process_large_tsv(
+        input_path=args.collection_path,
+        output_path=processed_collection_path,
+        preprocess_func=processor.process_text,
+        id_col_name="docno",
+        text_col_name="text",
+        chunk_size=args.chunk_size
+    )
 
     # 4. Process Queries
-    print(f"Processing queries: {args.queries_path}")
-    total_queries = count_lines(args.queries_path)
-    if total_queries > 0:
-        with open(args.queries_path, 'r', encoding='utf-8') as fin, \
-             open(processed_queries_path, 'w', encoding='utf-8') as fout:
-
-            for line in tqdm(fin, total=total_queries, desc="Processing queries"):
-                parts = line.strip().split('\t')
-                if len(parts) == 2:
-                    qid, query = parts
-                    fout.write(f"{qid}\t{processor.process_text(query)}\n")
-    print(f"Processed queries saved to: {processed_queries_path}")
+    process_large_tsv(
+        input_path=args.queries_path,
+        output_path=processed_queries_path,
+        preprocess_func=processor.process_text,
+        id_col_name="qid",
+        text_col_name="query",
+        chunk_size=args.chunk_size
+    )
 
     # 5. Copy Qrels
     print(f"Copying qrels: {args.qrels_path}")
