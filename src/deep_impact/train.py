@@ -1,3 +1,4 @@
+import argparse
 from functools import partial
 from pathlib import Path
 from typing import Union
@@ -11,7 +12,6 @@ from src.deep_impact.training import Trainer, PairwiseTrainer, CrossEncoderTrain
     InBatchNegativesTrainer
 from src.deep_impact.training.distil_trainer import DistilMarginMSE, DistilKLLoss
 from src.utils.datasets import MSMarcoTriples, DistillationScores
-from src.deep_impact.evaluation.nano_beir_evaluator import NanoBEIREvaluator
 from src.utils.defaults import VNCORE_DIR
 
 
@@ -100,30 +100,51 @@ def run(
         distil_mse: bool = False,
         distil_kl: bool = False,
         in_batch_negatives: bool = False,
+        xlmr: bool = False,  # Added flag
         start_with: Union[str, Path] = None,
         qrels_path: Union[str, Path] = None,
-        eval_every: int = 500
+        eval_every: int = 500,
+        no_beir_eval: bool = False,
 ):
-    # DeepImpact
-    model_cls = DeepImpact
-    trainer_cls = Trainer
-    collate_function = partial(collate_fn, model_cls=DeepImpact, max_length=max_length)
-    dataset_cls = MSMarcoTriples
 
-    # Pairwise
-    if pairwise:
+    # # DeepImpact
+    # model_cls = DeepImpact
+    # trainer_cls = Trainer
+    # collate_function = partial(collate_fn, model_cls=DeepImpact, max_length=max_length)
+    # dataset_cls = MSMarcoTriples
+
+    # # Pairwise
+    # if pairwise:
+    #     model_cls = DeepPairwiseImpact
+    #     trainer_cls = PairwiseTrainer
+    #     collate_function = partial(collate_fn, model_cls=DeepPairwiseImpact, max_length=max_length)
+
+    # # CrossEncoder
+    # elif cross_encoder:
+    #     model_cls = DeepImpactCrossEncoder
+    #     trainer_cls = CrossEncoderTrainer
+    #     collate_function = cross_encoder_collate_fn
+
+    if xlmr:
+        model_cls = DeepImpactXLMR
+    elif pairwise:
         model_cls = DeepPairwiseImpact
-        trainer_cls = PairwiseTrainer
-        collate_function = partial(collate_fn, model_cls=DeepPairwiseImpact, max_length=max_length)
-
-    # CrossEncoder
     elif cross_encoder:
         model_cls = DeepImpactCrossEncoder
+    else:
+        model_cls = DeepImpact  # Default
+
+    if pairwise:
+        trainer_cls = PairwiseTrainer
+        collate_function = partial(collate_fn, model_cls=model_cls, max_length=max_length)
+        dataset_cls = MSMarcoTriples
+    elif cross_encoder:
         trainer_cls = CrossEncoderTrainer
         collate_function = cross_encoder_collate_fn
+        dataset_cls = MSMarcoTriples
 
     # Use distillation loss
-    if distil_mse:
+    elif distil_mse:
         trainer_cls = DistilTrainer
         trainer_cls.loss = DistilMarginMSE()
         collate_function = partial(distil_collate_fn, max_length=max_length)
@@ -134,9 +155,18 @@ def run(
         collate_function = partial(distil_collate_fn, max_length=max_length)
         dataset_cls = DistillationScores
 
-    if in_batch_negatives:
+    elif in_batch_negatives:
+        assert not (distil_mse or distil_kl), "--in_batch_negatives cannot be used with distillation"
+        assert not (pairwise or cross_encoder), "--in_batch_negatives cannot be used with --pairwise or --cross_encoder"
         trainer_cls = InBatchNegativesTrainer
         collate_function = partial(in_batch_negatives_collate_fn, max_length=max_length)
+        dataset_cls = MSMarcoTriples
+
+    else:
+        # Default trainer
+        trainer_cls = Trainer
+        collate_function = partial(collate_fn, model_cls=model_cls, max_length=max_length)
+        dataset_cls = MSMarcoTriples
 
     trainer_cls.ddp_setup()
     dataset = dataset_cls(dataset_path, queries_path, collection_path)
@@ -159,11 +189,32 @@ def run(
     # model_cls.tokenizer.enable_padding(length=max_length)
     model_cls.tokenizer.model_max_length = max_length
 
-    model_cls._vncorenlp_path = vncorenlp_path
+    # 3. Handle vncorenlp
+    if model_cls != DeepImpactXLMR:
+        # DeepImpact, Pairwise, and CrossEncoder require vncorenlp
+        if vncorenlp_path is None:
+            vncorenlp_path = VNCORE_DIR  # Try default
+            if not Path(vncorenlp_path).exists():
+                raise ValueError(
+                    f"{model_cls.__name__} requires VnCoreNLP. "
+                    "Please provide --vncorenlp_path or ensure VNCORE_DIR default exists."
+                )
+        model_cls._vncorenlp_path = vncorenlp_path
+    elif vncorenlp_path is not None:
+        # XLMR model does not use vncorenlp
+        print(f"Warning: --vncorenlp_path provided, but {model_cls.__name__} does not use VnCoreNLP.")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
-    evaluator = NanoBEIREvaluator(batch_size=64, verbose=False)
+    # 4. Handle NanoBEIREvaluator (make optional)
+    evaluator = None
+    if not no_beir_eval:
+        try:
+            from src.deep_impact.evaluation.nano_beir_evaluator import NanoBEIREvaluator
+            evaluator = NanoBEIREvaluator(batch_size=64, verbose=False)
+        except ImportError:
+            print("Warning: NanoBEIREvaluator components not found. Skipping BEIR evaluation.")
+            print("Please install required dependencies (e.g., 'beir', 'datasets') if evaluation is desired.")
 
     trainer = trainer_cls(
         model=model,
@@ -183,7 +234,6 @@ def run(
 
 
 if __name__ == "__main__":
-    import argparse
 
     parser = argparse.ArgumentParser("Distributed Training of DeepImpact on MS MARCO triples dataset")
     parser.add_argument("--dataset_path", type=Path, required=True, help="Path to the training dataset")
@@ -197,7 +247,12 @@ if __name__ == "__main__":
     parser.add_argument("--save_every", type=int, default=20000, help="Save checkpoint every n steps")
     parser.add_argument("--save_best", action="store_true", help="Save the best model")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Gradient accumulation steps")
-    parser.add_argument("--vncorenlp_path", type=Path, default=VNCORE_DIR, help="Path to VnCoreNLP model folder (for Vietnamese processing)")
+    parser.add_argument("--vncorenlp_path", type=Path, default=None,
+                        help="Path to VnCoreNLP model folder. Required for non-XLMR models. Uses VNCORE_DIR default if not set.")
+    parser.add_argument("--xlmr", action="store_true",
+                        help="Use DeepImpactXLMR model (does not require vncorenlp)")
+    parser.add_argument("--no_beir_eval", action="store_true",
+                        help="Disable evaluation with NanoBEIR during training")
     parser.add_argument("--pairwise", action="store_true", help="Use pairwise training")
     parser.add_argument("--cross_encoder", action="store_true", help="Use cross encoder model")
     parser.add_argument("--distil_mse", action="store_true", help="Use distillation loss with Mean Squared Error")
@@ -214,6 +269,10 @@ if __name__ == "__main__":
 
     assert not (args.distil_mse and args.distil_kl), "Cannot use both distillation losses at the same time"
     assert not (args.distil_mse and not args.qrels_path), "qrels_path is required for distillation loss with Margin MSE"
+
+    model_flags = [args.xlmr, args.pairwise, args.cross_encoder]
+    assert sum(flag for flag in model_flags if flag) <= 1, \
+        "Only one of --xlmr, --pairwise, or --cross_encoder can be specified at a time."
 
     # pass all argparse arguments to run() as kwargs
     run(**vars(args))
