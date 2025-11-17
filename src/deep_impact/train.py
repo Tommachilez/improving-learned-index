@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-from src.deep_impact.models import DeepImpact, DeepPairwiseImpact, DeepImpactCrossEncoder
+from src.deep_impact.models import DeepImpact, DeepImpactXLMR, DeepPairwiseImpact, DeepImpactCrossEncoder
 from src.deep_impact.training import Trainer, PairwiseTrainer, CrossEncoderTrainer, DistilTrainer, \
     InBatchNegativesTrainer
 from src.deep_impact.training.distil_trainer import DistilMarginMSE, DistilKLLoss
