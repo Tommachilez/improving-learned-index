@@ -107,10 +107,13 @@ class Trainer:
 
         # Resume training if checkpoint exists i.e. step > 0
         remaining = len(self.train_data) - self.checkpoint_callback.step
+
+        total_dataset_len = len(self.train_data.dataset)
+
         self.train_data = iter(self.train_data)
         if self.checkpoint_callback.step:
             self.skip()
-                
+
         with tqdm(total=remaining) as progress_bar:
             train_loss = 0
 
@@ -138,7 +141,7 @@ class Trainer:
                         step = self.checkpoint_callback.step + (i * self.batch_size * self.n_ranks) # Estimate global step
                         self.writer.add_scalar("train/loss", current_loss, step)
                         self.writer.add_scalar("train/avg_loss", train_loss / (i + 1), step)
-                        self.writer.add_scalar("train/epoch", (i * self.batch_size * self.n_ranks) / len(self.train_data.dataset), step)
+                        self.writer.add_scalar("train/epoch", (i * self.batch_size * self.n_ranks) / total_dataset_len, step)
                         self.writer.add_scalar("train/learning_rate", self.optimizer.param_groups[0]['lr'], step)
 
                     if i % self.eval_every == 0 and self.evaluator is not None:
