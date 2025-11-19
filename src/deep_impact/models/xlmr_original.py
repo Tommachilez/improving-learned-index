@@ -123,7 +123,7 @@ class DeepImpact(XLMRobertaPreTrainedModel):
         
         encoded = cls.tokenizer.encode_plus(
             document_terms,
-            is_pretokenized=True,
+            is_split_into_words=True,
             add_special_tokens=True,
             padding='max_length',
             truncation=True,
