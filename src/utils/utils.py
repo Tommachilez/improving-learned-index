@@ -18,5 +18,6 @@ def get_unique_query_terms(query_list, passage):
 def merge(document: str, queries: List[str]) -> str:
     document = document.replace('\n', ' ')
     unique_query_terms_str = ' '.join(get_unique_query_terms(queries, document))
+    unique_query_terms_str = unique_query_terms_str.replace('_', ' ')
     document = re.sub(r"\s{2,}", ' ', f'{document} {unique_query_terms_str}')
     return document
