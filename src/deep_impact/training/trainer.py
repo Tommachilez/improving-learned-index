@@ -1,4 +1,5 @@
 import os
+import wandb
 from pathlib import Path
 from typing import Union
 
@@ -30,6 +31,8 @@ class Trainer:
             gradient_accumulation_steps: int = 1,
             eval_every: int = 500,
             evaluator: BaseEvaluator = None,
+            use_wandb: bool = False,
+            config = None
     ) -> None:
         self.seed = seed
         self.gpu_id = torch.distributed.get_rank()
@@ -41,7 +44,11 @@ class Trainer:
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.eval_every = eval_every
         self.evaluator = evaluator
-        
+        self.use_wandb = use_wandb
+
+        if self.use_wandb and self.gpu_id == 0:
+            wandb.init(project="DeepImpact", config=config)
+
         model_name = self.model.__class__.__name__
         last_checkpoint_path = (checkpoint_dir /
                                 f'{model_name}_{ModelCheckpoint.LATEST_SNAPSHOT_SUFFIX}.{ModelCheckpoint.EXTENSION}')
@@ -109,10 +116,20 @@ class Trainer:
                     self.optimizer.zero_grad()
 
                 if self.gpu_id == 0:
+
+                    if self.use_wandb:
+                        wandb.log({
+                            "train/loss": current_loss, 
+                            "train/avg_loss": train_loss / (i + 1),
+                            "train/step": self.checkpoint_callback.step
+                        })
+
                     if i % self.eval_every == 0 and self.evaluator is not None:
                         self.logger.info(f"Evaluating NanoBEIR at iteration {i}")
                         metrics = self.evaluator.evaluate_all(self.model.module)
                         self.logger.info(f"Metrics: {metrics}")
+                        if self.use_wandb:
+                            wandb.log({"eval": metrics, "step": self.checkpoint_callback.step})
                         # write metrics to file as as single line, add iteration number
                         with open(self.checkpoint_dir / "metrics.txt", "a") as f:  
                             f.write(json.dumps({"iteration": i, "metrics": metrics}) + "\n")

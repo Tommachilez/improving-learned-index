@@ -105,6 +105,8 @@ def run(
         qrels_path: Union[str, Path] = None,
         eval_every: int = 500,
         no_beir_eval: bool = False,
+        use_wandb: bool = False,
+        args_config: argparse.Namespace = None
 ):
 
     # # DeepImpact
@@ -228,6 +230,8 @@ def run(
         gradient_accumulation_steps=gradient_accumulation_steps,
         evaluator=evaluator,
         eval_every=eval_every,
+        use_wandb=use_wandb,
+        config=args_config
     )
     trainer.train()
     trainer_cls.ddp_cleanup()
@@ -260,6 +264,7 @@ if __name__ == "__main__":
     parser.add_argument("--in_batch_negatives", action="store_true", help="Use in-batch negatives")
     parser.add_argument("--start_with", type=Path, default=None, help="Start training with this checkpoint")
     parser.add_argument("--eval_every", type=int, default=500, help="Evaluate every n steps")
+    parser.add_argument("--use_wandb", action="store_true", help="Enable logging to Weights & Biases")
 
 
     # required for distillation loss with Margin MSE
@@ -275,4 +280,4 @@ if __name__ == "__main__":
         "Only one of --xlmr, --pairwise, or --cross_encoder can be specified at a time."
 
     # pass all argparse arguments to run() as kwargs
-    run(**vars(args))
+    run(**vars(args), args_config=args)
