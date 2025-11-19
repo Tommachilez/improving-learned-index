@@ -147,12 +147,12 @@ def run(
     elif distil_mse:
         trainer_cls = DistilTrainer
         trainer_cls.loss = DistilMarginMSE()
-        collate_function = partial(distil_collate_fn, max_length=max_length)
+        collate_function = partial(distil_collate_fn, model_cls=model_cls, max_length=max_length)
         dataset_cls = partial(DistillationScores, qrels_path=qrels_path)
     elif distil_kl:
         trainer_cls = DistilTrainer
         trainer_cls.loss = DistilKLLoss()
-        collate_function = partial(distil_collate_fn, max_length=max_length)
+        collate_function = partial(distil_collate_fn, model_cls=model_cls, max_length=max_length)
         dataset_cls = DistillationScores
 
     elif in_batch_negatives:
