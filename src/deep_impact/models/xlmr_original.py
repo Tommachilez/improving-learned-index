@@ -8,20 +8,20 @@ import tokenizers
 import torch
 import torch.nn as nn
 # from transformers import BertPreTrainedModel, BertModel
-from transformers import RobertaPreTrainedModel, RobertaModel, AutoTokenizer
+from transformers import XLMRobertaPreTrainedModel, XLMRobertaModel, AutoTokenizer
 from underthesea import text_normalize
 
 from src.utils.checkpoint import ModelCheckpoint
 
 
-class DeepImpact(RobertaPreTrainedModel):
+class DeepImpact(XLMRobertaPreTrainedModel):
     max_length = 256
     tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-base')
     punctuation = set(string.punctuation)
 
     def __init__(self, config):
         super(DeepImpact, self).__init__(config)
-        self.bert = RobertaModel(config)
+        self.bert = XLMRobertaModel(config)
         self.impact_score_encoder = nn.Sequential(
             nn.Linear(config.hidden_size, 1),
             nn.ReLU()
@@ -105,7 +105,7 @@ class DeepImpact(RobertaPreTrainedModel):
     def process_query(cls, query: str) -> Set[str]:
         query = cls.tokenizer.backend_tokenizer.normalizer.normalize_str(query)
         return set(filter(lambda x: x not in cls.punctuation,
-                          map(lambda x: x[0], cls.tokenizer.pre_tokenizer.pre_tokenize_str(query))))
+                          map(lambda x: x[0], cls.tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(query))))
 
     @classmethod
     def process_document(cls, document: str, max_length: Optional[int] = None) -> Tuple[tokenizers.Encoding, Dict[str, int]]:
@@ -119,7 +119,7 @@ class DeepImpact(RobertaPreTrainedModel):
             max_length = cls.max_length
 
         document = cls.tokenizer.backend_tokenizer.normalizer.normalize_str(document)
-        document_terms = [x[0] for x in cls.tokenizer.pre_tokenizer.pre_tokenize_str(document)]
+        document_terms = [x[0] for x in cls.tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(document)]
         
         encoded = cls.tokenizer.encode_plus(
             document_terms,
