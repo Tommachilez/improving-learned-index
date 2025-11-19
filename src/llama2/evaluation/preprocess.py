@@ -253,7 +253,7 @@ def main():
                         help="Path to the Vietnamese stopwords file.")
     parser.add_argument('--output_dir', type=Path, required=True,
                         help="Directory to store processed files.")
-    parser.add_argument('--chunk_size', type=int, default=None,
+    parser.add_argument('--chunk_size', type=int, default=10000,
                         help="Lines to process in one batch.")
     parser.add_argument('--num_doc', type=int, default=None,
                         help="Total number of documents to process from the collection/queries.")
