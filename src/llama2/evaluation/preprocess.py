@@ -55,18 +55,30 @@ def _load_and_compile_stopwords(path: Union[str, Path]) -> Optional[re.Pattern]:
         return None
 
 
+def count_lines(filepath: Path) -> int:
+    """Helper function to count lines for tqdm."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return sum(1 for _ in f)
+    except FileNotFoundError:
+        print(f"Error: File not found for line count: {filepath}", file=sys.stderr)
+        return 0
+
+
 def process_large_tsv(
     input_path: Path,
     output_path: Path,
     preprocess_func: callable,
     id_col_name: str,
     text_col_name: str,
-    chunk_size: int
+    chunk_size: int,
+    num_doc: Optional[int] = None
 ):
     """
     Processes a large TSV file in chunks, supporting resumes.
     - id_col_name: 'docno' or 'qid'
     - text_col_name: 'text' or 'query'
+    - num_doc: Total quota of documents to process.
     """
     print(f"Starting batch processing for: {input_path}")
     print(f"  Output file: {output_path}")
@@ -78,14 +90,26 @@ def process_large_tsv(
         lines_processed = count_lines(output_path)
         print(f"  Resuming from line {lines_processed + 1}...")
 
+    # Check quota logic
+    if num_doc is not None:
+        if lines_processed >= num_doc:
+            print(f"  Quota of {num_doc} documents already reached. Skipping.")
+            return
+        print(f"  Processing up to {num_doc} documents (total, including existing).")
+
     total_lines = count_lines(input_path)
     if total_lines == 0:
         print("Input file is empty or unreadable. Skipping.")
         return
 
-    if lines_processed >= total_lines:
+    if num_doc is None and lines_processed >= total_lines:
         print("Output file is already complete. Skipping.")
         return
+
+    # Determine tqdm total
+    total_pbar = total_lines
+    if num_doc is not None:
+        total_pbar = min(total_lines, num_doc)
 
     # 2. Create a pandas iterator
     reader = pd.read_csv(
@@ -103,10 +127,18 @@ def process_large_tsv(
     with open(output_path, 'a', encoding='utf-8') as f_out:
 
         # 4. Set up TQDM progress bar
-        with tqdm(total=total_lines, desc=f"Processing {input_path.name}", initial=lines_processed) as pbar:
+        with tqdm(total=total_pbar, desc=f"Processing {input_path.name}", initial=lines_processed) as pbar:
 
             # 5. Iterate over chunks
             for chunk in reader:
+                # Quota check inside loop
+                if num_doc is not None:
+                    remaining = num_doc - lines_processed
+                    if remaining <= 0:
+                        break
+                    if len(chunk) > remaining:
+                        chunk = chunk.iloc[:remaining]
+
                 # Fill NaN just in case
                 chunk = chunk.fillna("")
 
@@ -121,20 +153,15 @@ def process_large_tsv(
                     header=False
                 )
 
-                # Update the progress bar
-                pbar.update(len(chunk))
+                # Update progress bar and counter
+                processed_count = len(chunk)
+                lines_processed += processed_count
+                pbar.update(processed_count)
+
+                if num_doc is not None and lines_processed >= num_doc:
+                    break
 
     print(f"Batch processing complete for: {input_path}")
-
-
-def count_lines(filepath: Path) -> int:
-    """Helper function to count lines for tqdm."""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return sum(1 for _ in f)
-    except FileNotFoundError:
-        print(f"Error: File not found for line count: {filepath}", file=sys.stderr)
-        return 0
 
 
 class VietnameseTextProcessor:
@@ -228,6 +255,8 @@ def main():
                         help="Directory to store processed files.")
     parser.add_argument('--chunk_size', type=int, default=None,
                         help="Lines to process in one batch.")
+    parser.add_argument('--num_doc', type=int, default=None,
+                        help="Total number of documents to process from the collection/queries.")
 
     args = parser.parse_args()
 
@@ -257,7 +286,8 @@ def main():
         preprocess_func=processor.process_text,
         id_col_name="docno",
         text_col_name="text",
-        chunk_size=args.chunk_size
+        chunk_size=args.chunk_size,
+        num_doc=args.num_doc
     )
 
     # 4. Process Queries
@@ -267,7 +297,8 @@ def main():
         preprocess_func=processor.process_text,
         id_col_name="qid",
         text_col_name="query",
-        chunk_size=args.chunk_size
+        chunk_size=args.chunk_size,
+        num_doc=args.num_doc
     )
 
     # 5. Copy Qrels
