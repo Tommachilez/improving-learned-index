@@ -15,7 +15,7 @@ from src.utils.checkpoint import ModelCheckpoint
 
 
 class DeepImpact(XLMRobertaPreTrainedModel):
-    max_length = 256
+    max_length = 512
     tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-base')
     punctuation = set(string.punctuation)
 
