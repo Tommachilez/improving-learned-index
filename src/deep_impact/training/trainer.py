@@ -1,5 +1,4 @@
 import os
-import wandb
 from pathlib import Path
 from typing import Union
 
@@ -7,8 +6,10 @@ import torch
 import torch.distributed
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import json
+import wandb
 
 from src.utils.checkpoint import ModelCheckpoint
 from src.utils.logger import Logger
@@ -32,6 +33,8 @@ class Trainer:
             eval_every: int = 500,
             evaluator: BaseEvaluator = None,
             use_wandb: bool = False,
+            logging_dir: Union[str, Path] = None,
+            logging_steps: int = 10,
             config = None
     ) -> None:
         self.seed = seed
@@ -44,10 +47,9 @@ class Trainer:
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.eval_every = eval_every
         self.evaluator = evaluator
+        self.logging_steps = logging_steps
         self.use_wandb = use_wandb
-
-        if self.use_wandb and self.gpu_id == 0:
-            wandb.init(project="DeepImpact", config=config)
+        self.writer = None
 
         model_name = self.model.__class__.__name__
         last_checkpoint_path = (checkpoint_dir /
@@ -78,6 +80,21 @@ class Trainer:
         self.checkpoint_callback.batch_size = self.batch_size * self.n_ranks
         self.model = DDP(self.model, device_ids=[self.gpu_id], find_unused_parameters=True)
         self.criterion = torch.nn.CrossEntropyLoss()
+
+        if self.gpu_id == 0:
+            # 1. Initialize TensorBoard Writer
+            log_path = Path(logging_dir) if logging_dir else Path("logs/tensorboard")
+            log_path.mkdir(parents=True, exist_ok=True)
+            self.writer = SummaryWriter(log_dir=str(log_path))
+
+            # 2. Initialize WandB to sync TensorBoard
+            if self.use_wandb:
+                wandb.init(
+                    project="DeepImpact",
+                    config=config,
+                    sync_tensorboard=True
+                )
+                self.logger.info("WandB initialized with TensorBoard sync.")
 
     def train(self):
         torch.manual_seed(self.seed)
@@ -117,19 +134,29 @@ class Trainer:
 
                 if self.gpu_id == 0:
 
-                    if self.use_wandb:
-                        wandb.log({
-                            "train/loss": current_loss, 
-                            "train/avg_loss": train_loss / (i + 1),
-                            "train/step": self.checkpoint_callback.step
-                        })
+                    if i % self.logging_steps == 0:
+                        step = self.checkpoint_callback.step + (i * self.batch_size * self.n_ranks) # Estimate global step
+                        self.writer.add_scalar("train/loss", current_loss, step)
+                        self.writer.add_scalar("train/avg_loss", train_loss / (i + 1), step)
+                        self.writer.add_scalar("train/epoch", (i * self.batch_size * self.n_ranks) / len(self.train_data.dataset), step)
+                        self.writer.add_scalar("train/learning_rate", self.optimizer.param_groups[0]['lr'], step)
 
                     if i % self.eval_every == 0 and self.evaluator is not None:
                         self.logger.info(f"Evaluating NanoBEIR at iteration {i}")
                         metrics = self.evaluator.evaluate_all(self.model.module)
                         self.logger.info(f"Metrics: {metrics}")
-                        if self.use_wandb:
-                            wandb.log({"eval": metrics, "step": self.checkpoint_callback.step})
+                        # Log evaluation metrics to TensorBoard
+                        step = self.checkpoint_callback.step + (i * self.batch_size * self.n_ranks)
+                        # Assuming metrics structure: {'avg': {'NDCG@10': 0.5, ...}, ...}
+                        for dataset, values in metrics.items():
+                            if dataset == "avg":
+                                for metric_name, val in values.items():
+                                    # Flatten dict if necessary or just log key metrics
+                                    if isinstance(val, dict):
+                                        for k, v in val.items():
+                                            self.writer.add_scalar(f"eval/{dataset}/{metric_name}/{k}", v, step)
+                                    else:
+                                        self.writer.add_scalar(f"eval/{dataset}/{metric_name}", val, step)
                         # write metrics to file as as single line, add iteration number
                         with open(self.checkpoint_dir / "metrics.txt", "a") as f:  
                             f.write(json.dumps({"iteration": i, "metrics": metrics}) + "\n")

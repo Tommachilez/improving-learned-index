@@ -12,7 +12,7 @@ from src.deep_impact.training import Trainer, PairwiseTrainer, CrossEncoderTrain
     InBatchNegativesTrainer
 from src.deep_impact.training.distil_trainer import DistilMarginMSE, DistilKLLoss
 from src.utils.datasets import MSMarcoTriples, DistillationScores
-from src.utils.defaults import VNCORE_DIR
+from src.utils.defaults import VNCORE_DIR, LOG_DIR
 
 
 def collate_fn(batch, model_cls=DeepImpact, max_length=None):
@@ -106,6 +106,8 @@ def run(
         eval_every: int = 500,
         no_beir_eval: bool = False,
         use_wandb: bool = False,
+        logging_dir: Union[str, Path] = None,
+        logging_steps: int = 10,
         args_config: argparse.Namespace = None
 ):
 
@@ -170,6 +172,9 @@ def run(
         collate_function = partial(collate_fn, model_cls=model_cls, max_length=max_length)
         dataset_cls = MSMarcoTriples
 
+    if logging_dir is None:
+        logging_dir = LOG_DIR / "tensorboard"
+
     trainer_cls.ddp_setup()
     dataset = dataset_cls(dataset_path, queries_path, collection_path)
     train_dataloader = DataLoader(
@@ -231,6 +236,8 @@ def run(
         evaluator=evaluator,
         eval_every=eval_every,
         use_wandb=use_wandb,
+        logging_dir=logging_dir,
+        logging_steps=logging_steps,
         config=args_config
     )
     trainer.train()
@@ -265,6 +272,8 @@ if __name__ == "__main__":
     parser.add_argument("--start_with", type=Path, default=None, help="Start training with this checkpoint")
     parser.add_argument("--eval_every", type=int, default=500, help="Evaluate every n steps")
     parser.add_argument("--use_wandb", action="store_true", help="Enable logging to Weights & Biases")
+    parser.add_argument("--logging_dir", type=Path, default=None, help="Directory for TensorBoard logs")
+    parser.add_argument("--logging_steps", type=int, default=10, help="Log every X steps")
 
 
     # required for distillation loss with Margin MSE
