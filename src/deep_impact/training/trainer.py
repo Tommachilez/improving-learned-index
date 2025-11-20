@@ -108,9 +108,10 @@ class Trainer:
                 current_loss = loss.detach().cpu().item()
                 train_loss += current_loss
 
+                grad_norm = None
                 if i % self.gradient_accumulation_steps == 0:
                     scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 2.0)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 2.0).item()
                     scaler.step(self.optimizer)
                     scaler.update()
                     self.optimizer.zero_grad()
@@ -118,11 +119,16 @@ class Trainer:
                 if self.gpu_id == 0:
 
                     if self.use_wandb:
-                        wandb.log({
+                        log_metrics = {
                             "train/loss": current_loss, 
                             "train/avg_loss": train_loss / (i + 1),
-                            "train/step": self.checkpoint_callback.step
-                        })
+                            "train/step": self.checkpoint_callback.step,
+                            "train/lr": self.optimizer.param_groups[0]['lr']
+                        }
+                        if grad_norm is not None:
+                            log_metrics["train/grad_norm"] = grad_norm
+
+                        wandb.log(log_metrics)
 
                     if i % self.eval_every == 0 and self.evaluator is not None:
                         self.logger.info(f"Evaluating NanoBEIR at iteration {i}")
@@ -140,14 +146,12 @@ class Trainer:
                         f"Current Loss: {current_loss * 100:.4f}, "
                         f"Examples Seen: {i * self.batch_size * self.n_ranks}")
                     self.checkpoint_callback()
-                            
 
             self.checkpoint_callback.save('final')
 
     def get_input_tensors(self, encoded_list):
         input_ids = torch.tensor([x.ids for x in encoded_list], dtype=torch.long).to(self.gpu_id)
-        attention_mask = torch.tensor([x.attention_mask for x in encoded_list], dtype=torch.long).to(
-            self.gpu_id)
+        attention_mask = torch.tensor([x.attention_mask for x in encoded_list], dtype=torch.long).to(self.gpu_id)
         type_ids = torch.tensor([x.type_ids for x in encoded_list], dtype=torch.long).to(self.gpu_id)
         return input_ids, attention_mask, type_ids
 
