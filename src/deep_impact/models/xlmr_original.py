@@ -120,7 +120,7 @@ class DeepImpact(XLMRobertaPreTrainedModel):
 
         document = cls.tokenizer.backend_tokenizer.normalizer.normalize_str(document)
         document_terms = [x[0] for x in cls.tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(document)]
-        
+
         encoded = cls.tokenizer.encode_plus(
             document_terms,
             is_split_into_words=True,
@@ -131,6 +131,27 @@ class DeepImpact(XLMRobertaPreTrainedModel):
             return_tensors=None  # Get lists
         )
 
+        term_index_to_token_index = {}
+
+        if isinstance(encoded, dict) and not hasattr(encoded, 'word_ids'):
+            # Re-wrap if it's just a dict (though encode_plus usually returns BatchEncoding)
+            # For safety, we can rely on the fact that we called it on the tokenizer.
+            # If your version returns a plain dict, we might need the BatchEncoding wrapper.
+            # However, in recent transformers, encode_plus returns a BatchEncoding.
+            pass
+
+        word_ids = encoded.word_ids()
+
+        # word_ids looks like [None, 0, 0, 1, 2, 2, None]. 
+        previous_word_idx = None
+        for i, word_idx in enumerate(word_ids):
+            if word_idx is None:
+                continue
+
+            # If this is a new word index we haven't processed yet
+            if word_idx != previous_word_idx:
+                term_index_to_token_index[word_idx] = i
+                previous_word_idx = word_idx
         class MockEncoding:
             def __init__(self, encoding_dict, tokenizer):
                 self.ids = encoding_dict['input_ids']
@@ -143,18 +164,17 @@ class DeepImpact(XLMRobertaPreTrainedModel):
         # Adapt encoded to AutoTokenizer to have the same interface as tokenizers.Encoding
         mock_encoded = MockEncoding(encoded, cls.tokenizer)
 
-        term_index_to_token_index = {}
-        counter = 0
-        # mock_encoded.tokens[1:] because the first token is '<s>' (RoBERTa's CLS)
-        for i, token in enumerate(mock_encoded.tokens[1:], start=1):
-            if token == '</s>':  # Stop at the end token
-                break
+        # counter = 0
+        # # mock_encoded.tokens[1:] because the first token is '<s>' (RoBERTa's CLS)
+        # for i, token in enumerate(mock_encoded.tokens[1:], start=1):
+        #     if token == '</s>':  # Stop at the end token
+        #         break
 
-            # For SentencePiece (XLM-R), new tokens start with a ' ' (U+2581)
-            if token.startswith(" ") or (i == 1):
-                term_index_to_token_index[counter] = i
-                counter += 1
-                print("Term to token:", term_index_to_token_index)
+        #     # For SentencePiece (XLM-R), new tokens start with a ' ' (U+2581)
+        #     if token.startswith(" ") or (i == 1):
+        #         term_index_to_token_index[counter] = i
+        #         counter += 1
+        #         print("Term to token:", term_index_to_token_index)
 
         # filter out duplicate terms, punctuations, and terms whose tokens overflow
         filtered_term_to_token_index = {}
