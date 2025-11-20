@@ -23,17 +23,25 @@ def count_lines(filepath: Path) -> int:
         return 0
 
 
-def get_corpus_docnos(path: Path) -> set:
+def get_corpus_docnos(path: Path, num_doc: int = None) -> set:
     """Reads the processed collection and returns a set of valid docnos."""
     print(f"Scanning collection for all valid docnos from: {path}")
+    if num_doc is not None:
+        print(f"Limiting to first {num_doc} valid documents.")
+
     docnos = set()
+    count = 0
     try:
         with open(path, 'r', encoding='utf-8') as f:
             for line in f:
+                if num_doc is not None and count >= num_doc:
+                    break
+
                 parts = line.strip().split('\t')
                 # Check for valid line and non-empty text
                 if len(parts) == 2 and parts[1].strip():
                     docnos.add(parts[0])
+                    count += 1
     except FileNotFoundError:
         print(f"Error: Processed collection file not found at {path}", file=sys.stderr)
         sys.exit(1)
@@ -46,12 +54,19 @@ def get_corpus_docnos(path: Path) -> set:
     return docnos
 
 
-def load_processed_documents(path: Path):
+def load_processed_documents(path: Path, num_doc: int = None):
     """Loads the pre-processed collection.tsv for the indexer."""
     print(f"Loading processed documents from: {path}")
+    if num_doc is not None:
+        print(f"Limiting to first {num_doc} valid documents.")
+
+    count = 0
     try:
         with open(path, 'r', encoding='utf-8') as f:
             for line in f:
+                if num_doc is not None and count >= num_doc:
+                    break
+
                 parts = line.strip().split('\t')
                 if len(parts) == 2:
                     # 1. Strip whitespace from the text
@@ -60,6 +75,7 @@ def load_processed_documents(path: Path):
                     # 2. Only yield if the text is not empty
                     if text:
                         yield {'docno': docno, 'text': text}
+                        count += 1
     except FileNotFoundError:
         print(f"Error: Processed collection file not found at {path}", file=sys.stderr)
         print("Please run the 'preprocess' script first.")
@@ -103,6 +119,8 @@ def main():
                         help="Directory containing the processed files from Stage 1.")
     parser.add_argument('--batch_size', type=int, default=None,
                         help="Batch size for evaluation.")
+    parser.add_argument('--num_doc', type=int, default=None,
+                        help="Number of documents to evaluate (index).")
     parser.add_argument('--verbose', action='store_true',
                         help="Enable verbose logging.")
     args = parser.parse_args()
@@ -123,7 +141,7 @@ def main():
     # 3. Load data
     queries_df = load_processed_queries(processed_queries_path)
     qrels_df = load_qrels_df(processed_qrels_path)
-    corpus_docnos = get_corpus_docnos(processed_collection_path)
+    corpus_docnos = get_corpus_docnos(processed_collection_path, num_doc=args.num_doc)
 
     # Filter Qrels: Keep only judgments for documents that are in our index
     print(f"Original qrels count: {len(qrels_df)}")
@@ -148,8 +166,10 @@ def main():
     # 4. Create Index
     if not os.path.exists(index_path_str + "/data.properties"):
         print(f"Index not found. Creating index at: {index_path_str}")
-        doc_generator = load_processed_documents(processed_collection_path)
-        total_docs = count_lines(processed_collection_path)
+        doc_generator = load_processed_documents(processed_collection_path, num_doc=args.num_doc)
+
+        # Use the exact number of valid documents found in step 3 for the progress bar
+        total_docs = len(corpus_docnos)
 
         indexer = pt.IterDictIndexer(
             index_path_str,

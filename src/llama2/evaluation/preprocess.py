@@ -256,7 +256,9 @@ def main():
     parser.add_argument('--chunk_size', type=int, default=10000,
                         help="Lines to process in one batch.")
     parser.add_argument('--num_doc', type=int, default=None,
-                        help="Total number of documents to process from the collection/queries.")
+                        help="Total number of documents to process from the collection.")
+    parser.add_argument('--num_queries', type=int, default=None,
+                        help="Total number of queries to process from the queries.")
 
     args = parser.parse_args()
 
@@ -298,7 +300,7 @@ def main():
         id_col_name="qid",
         text_col_name="query",
         chunk_size=args.chunk_size,
-        num_doc=args.num_doc
+        num_doc=args.num_queries
     )
 
     # 5. Copy Qrels
