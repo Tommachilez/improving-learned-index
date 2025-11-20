@@ -142,7 +142,7 @@ class DeepImpact(XLMRobertaPreTrainedModel):
 
         word_ids = encoded.word_ids()
 
-        # word_ids looks like [None, 0, 0, 1, 2, 2, None]. 
+        # word_ids looks like [None, 0, 0, 1, 2, 2, None].
         previous_word_idx = None
         for i, word_idx in enumerate(word_ids):
             if word_idx is None:
@@ -153,7 +153,6 @@ class DeepImpact(XLMRobertaPreTrainedModel):
                 term_index_to_token_index[word_idx] = i
                 previous_word_idx = word_idx
 
-        print("Term to token:", term_index_to_token_index)
         class MockEncoding:
             def __init__(self, encoding_dict, tokenizer):
                 self.ids = encoding_dict['input_ids']
