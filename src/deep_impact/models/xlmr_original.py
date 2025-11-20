@@ -24,7 +24,8 @@ class DeepImpact(XLMRobertaPreTrainedModel):
         self.bert = XLMRobertaModel(config)
         self.impact_score_encoder = nn.Sequential(
             nn.Linear(config.hidden_size, 1),
-            nn.ReLU()
+            # nn.ReLU()
+            nn.Softplus()
         )
         self.init_weights()
 
