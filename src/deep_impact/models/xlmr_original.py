@@ -151,11 +151,10 @@ class DeepImpact(XLMRobertaPreTrainedModel):
                 break
 
             # For SentencePiece (XLM-R), new tokens start with a ' ' (U+2581)
-            if not token.startswith(" "):
-                continue
-
-            term_index_to_token_index[counter] = i
-            counter += 1
+            if token.startswith(" ") or (i == 1):
+                term_index_to_token_index[counter] = i
+                counter += 1
+                print("Term to token:", term_index_to_token_index)
 
         # filter out duplicate terms, punctuations, and terms whose tokens overflow
         filtered_term_to_token_index = {}
