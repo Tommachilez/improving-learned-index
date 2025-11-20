@@ -152,6 +152,8 @@ class DeepImpact(XLMRobertaPreTrainedModel):
             if word_idx != previous_word_idx:
                 term_index_to_token_index[word_idx] = i
                 previous_word_idx = word_idx
+
+        print("Term to token:", term_index_to_token_index)
         class MockEncoding:
             def __init__(self, encoding_dict, tokenizer):
                 self.ids = encoding_dict['input_ids']
