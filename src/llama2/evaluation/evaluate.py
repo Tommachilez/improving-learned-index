@@ -201,7 +201,7 @@ def main():
         [bm25],
         queries_df,
         qrels_df,
-        eval_metrics=["recip_rank", "recall_10"],
+        eval_metrics=["recip_rank", "recall", "map", "ndcg"],
         batch_size=args.batch_size,
         names=["BM25_on_Expanded_Collection_VN"],
         verbose=args.verbose
