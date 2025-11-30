@@ -6,7 +6,7 @@ from typing import Union, Optional
 from tqdm.auto import tqdm
 
 from src.deep_impact.inverted_index import InvertedIndex
-from src.deep_impact.models import DeepImpact, DeepPairwiseImpact
+from src.deep_impact.models import DeepImpact, DeepPairwiseImpact, DeepImpactXLMR
 from src.utils.datasets import QueryRelevanceDataset, Queries, RunFile
 from src.utils.defaults import COLLECTION_TYPES
 
@@ -38,7 +38,7 @@ class Ranker:
         self.run_file = RunFile(run_file_path=output_path)
         self.num_workers = num_workers
         self.pairwise = pairwise
-        self.model_cls = DeepPairwiseImpact if pairwise else DeepImpact
+        self.model_cls = DeepPairwiseImpact if pairwise else DeepImpactXLMR
 
     def run(self):
         with Pool(self.num_workers) as p, tqdm(total=len(self.query_iterator)) as pbar:
