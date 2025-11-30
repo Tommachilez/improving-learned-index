@@ -14,6 +14,16 @@ from underthesea import text_normalize
 from src.utils.checkpoint import ModelCheckpoint
 
 
+class MockEncoding:
+    def __init__(self, encoding_dict, tokenizer):
+        self.ids = encoding_dict['input_ids']
+        self.attention_mask = encoding_dict['attention_mask']
+        # RoBERTa doesn't use type_ids, but the model code expects them.
+        # We'll create a list of zeros.
+        self.type_ids = [0] * len(self.ids)
+        self.tokens = tokenizer.convert_ids_to_tokens(self.ids)
+
+
 class DeepImpact(XLMRobertaPreTrainedModel):
     max_length = 512
     tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-base')
@@ -153,15 +163,6 @@ class DeepImpact(XLMRobertaPreTrainedModel):
             if word_idx != previous_word_idx:
                 term_index_to_token_index[word_idx] = i
                 previous_word_idx = word_idx
-
-        class MockEncoding:
-            def __init__(self, encoding_dict, tokenizer):
-                self.ids = encoding_dict['input_ids']
-                self.attention_mask = encoding_dict['attention_mask']
-                # RoBERTa doesn't use type_ids, but the model code expects them.
-                # We'll create a list of zeros.
-                self.type_ids = [0] * len(self.ids)
-                self.tokens = tokenizer.convert_ids_to_tokens(self.ids)
 
         # Adapt encoded to AutoTokenizer to have the same interface as tokenizers.Encoding
         mock_encoded = MockEncoding(encoded, cls.tokenizer)
