@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Union
 
 from src.deep_impact.indexing import Indexer
-from src.deep_impact.models import DeepImpact, DeepPairwiseImpact
+from src.deep_impact.models import DeepImpact, DeepPairwiseImpact, DeepImpactXLMR
 from src.utils.datasets import CollectionParser
 from src.utils.defaults import COLLECTION_PATH, DATA_DIR, CHECKPOINT_DIR, BATCH_SIZE, COLLECTION_TYPES
 from src.utils.logger import Logger
@@ -23,7 +23,7 @@ def run(
 
     logger = Logger(Path(__file__).stem)
     indexer = Indexer(
-        model_cls=DeepPairwiseImpact if pairwise else DeepImpact,
+        model_cls=DeepPairwiseImpact if pairwise else DeepImpactXLMR,
         model_checkpoint_path=model_checkpoint_path,
         num_processes=num_processes,
         model_batch_size=model_batch_size,
