@@ -1,10 +1,12 @@
 import csv
 import json
 import argparse
-from tqdm import tqdm
 import os
+from collections import Counter
+from tqdm import tqdm
 
-def sliding_window(text, window_size=350, stride=175):
+
+def sliding_window(text, window_size=250, stride=100):
     tokens = text.split()
     if not tokens:
         return []
@@ -20,19 +22,12 @@ def sliding_window(text, window_size=350, stride=175):
             break
     return windows
 
-def load_expansion_terms(queries_path):
+
+def load_expansion_terms(queries_path, max_terms=100):
     """
-    Loads pre-tokenized queries from JSONL and extracts unique terms per document.
-    Expected JSONL format:
-    {
-        "pos_doc_id": "...", 
-        "queries": [
-            {"query_raw": "...", "query_seg": "term1 term2 ..."},
-            ...
-        ]
-    }
+    Loads pre-tokenized queries, counts term frequency, and selects top-K terms.
     """
-    print(f"Loading expansion terms from {queries_path}...")
+    print(f"Loading expansion terms from {queries_path} with max_terms={max_terms}...")
     doc_expansions = {}
 
     try:
@@ -42,22 +37,23 @@ def load_expansion_terms(queries_path):
 
                 try:
                     data = json.loads(line)
-                    # Ensure doc_id is string for consistent matching
                     doc_id = str(data.get('pos_doc_id', '')).strip()
                     queries = data.get('queries', [])
 
                     if not doc_id: continue
 
-                    unique_terms = set()
+                    # Use Counter to track term importance
+                    term_counts = Counter()
                     for q in queries:
-                        # Use query_seg for the actual terms
                         seg = q.get('query_seg', '')
                         if seg:
-                            # Split by whitespace to get tokens
-                            unique_terms.update(seg.split())
+                            term_counts.update(seg.split())
 
-                    if unique_terms:
-                        doc_expansions[doc_id] = " ".join(sorted(unique_terms))
+                    if term_counts:
+                        # Select top K most frequent terms
+                        top_terms = [term for term, count in term_counts.most_common(max_terms)]
+                        # Keeping frequency order places most important terms first (better for truncation)
+                        doc_expansions[doc_id] = " ".join(top_terms)
 
                 except json.JSONDecodeError:
                     continue
@@ -68,13 +64,15 @@ def load_expansion_terms(queries_path):
     print(f"Loaded expansion terms for {len(doc_expansions)} documents.")
     return doc_expansions
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_csv", type=str, required=True, help="Path to doc_mapping.csv (must have 'doc_id', 'document' headers)")
     parser.add_argument("--queries_jsonl", type=str, required=True, help="Path to queries_pretokenized.jsonl")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save output files")
-    parser.add_argument("--window", type=int, default=300, help="Sliding window size (words)")
-    parser.add_argument("--stride", type=int, default=150, help="Sliding window stride (words)")
+    parser.add_argument("--window", type=int, default=250, help="Sliding window size (words)")
+    parser.add_argument("--stride", type=int, default=100, help="Sliding window stride (words)")
+    parser.add_argument("--max_expansion_len", type=int, default=100, help="Max expansion terms to append")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -82,7 +80,7 @@ def main():
     mapping_path = os.path.join(args.output_dir, "pid_mapping.txt")
 
     # 1. Load Expansions
-    doc_expansions = load_expansion_terms(args.queries_jsonl)
+    doc_expansions = load_expansion_terms(args.queries_jsonl, max_terms=args.max_expansion_len)
 
     # 2. Process Documents
     print(f"Processing documents from {args.input_csv}...")
@@ -97,7 +95,6 @@ def main():
             exit(1)
 
         writer = csv.writer(f_pass, delimiter='\t')
-
         global_index = 0
 
         for row in tqdm(reader, desc="Creating passages"):
