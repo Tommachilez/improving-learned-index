@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 # from transformers import BertPreTrainedModel, BertModel
 from transformers import XLMRobertaPreTrainedModel, XLMRobertaModel, AutoTokenizer
-from underthesea import text_normalize
 
 from src.utils.checkpoint import ModelCheckpoint
 

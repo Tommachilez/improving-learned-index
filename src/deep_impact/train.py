@@ -94,7 +94,7 @@ def run(
         save_every: int,
         save_best: bool,
         gradient_accumulation_steps: int,
-        vncorenlp_path: Union[str, Path],
+        vncorenlp_path: Union[str, Path] = None,
         pairwise: bool = False,
         cross_encoder: bool = False,
         distil_mse: bool = False,
