@@ -1,19 +1,35 @@
 import csv
 import json
 import argparse
+from collections import defaultdict
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
-def load_doc_mapping(csv_path):
-    """Loads doc_id -> document text mapping."""
-    print(f"Loading documents from {csv_path}...")
+def load_raw_docs(csv_path):
+    """Loads doc_id -> raw document text from CSV."""
+    print(f"Loading raw documents from CSV: {csv_path}...")
     docs = {}
     with open(csv_path, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # key: doc_id, value: document
             if 'doc_id' in row and 'document' in row:
                 docs[str(row['doc_id']).strip()] = row['document']
+    return docs
+
+def load_pretokenized_docs(jsonl_path):
+    """Loads doc_id -> pretokenized content (space-separated tokens) for deduplication."""
+    print(f"Loading pretokenized docs for filtering from: {jsonl_path}...")
+    docs = {}
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+                doc_id = str(entry.get('id', '')).strip()
+                content = entry.get('contents', '')
+                if doc_id:
+                    docs[doc_id] = content
+            except json.JSONDecodeError:
+                continue
     return docs
 
 def process_queries_mapping(input_csv, output_tsv):
@@ -30,10 +46,11 @@ def process_queries_mapping(input_csv, output_tsv):
                 writer.writerow([row['query_id'], row['query']])
 
 def main():
-    parser = argparse.ArgumentParser(description="Expand documents with unique query terms and truncate to 512 tokens.")
+    parser = argparse.ArgumentParser(description="Expand raw documents with unique query terms (deduplicated against pretokenized docs).")
 
     # Inputs
-    parser.add_argument("--doc_mapping", required=True, help="Path to unique_doc_mapping.csv")
+    parser.add_argument("--doc_mapping", required=True, help="Path to unique_doc_mapping.csv (Raw Documents)")
+    parser.add_argument("--pretokenized_doc", required=True, help="Path to pretokenized document JSONL (For filtering)")
     parser.add_argument("--query_mapping", required=True, help="Path to unique_query_mapping.csv")
     parser.add_argument("--pretokenized_queries", required=True, help="Path to queries_pretokenized.jsonl")
 
@@ -47,81 +64,118 @@ def main():
 
     args = parser.parse_args()
 
-    # 1. Process Query Mapping (Simple Convert)
+    # 1. Process Query Mapping
     process_queries_mapping(args.query_mapping, args.output_queries_tsv)
 
-    # 2. Load Documents
-    doc_map = load_doc_mapping(args.doc_mapping)
+    # 2. Load Documents (Both Raw and Pretokenized)
+    raw_docs_map = load_raw_docs(args.doc_mapping)
+    pretok_docs_map = load_pretokenized_docs(args.pretokenized_doc)
 
-    # 3. Initialize Tokenizer
-    print(f"Loading tokenizer: {args.model_name}...")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    # 3. Aggregate Query Terms by Document ID
+    print(f"Aggregating query terms from {args.pretokenized_queries}...")
+    doc_expansions = defaultdict(set) # doc_id -> set of unique terms
 
-    # 4. Process Expansion
-    print(f"Processing expansions from {args.pretokenized_queries}...")
-
-    with open(args.pretokenized_queries, 'r', encoding='utf-8') as f_in, \
-         open(args.output_docs_tsv, 'w', encoding='utf-8', newline='') as f_out:
-
-        writer = csv.writer(f_out, delimiter='\t')
-
-        for line in tqdm(f_in, desc="Expanding Documents"):
+    with open(args.pretokenized_queries, 'r', encoding='utf-8') as f:
+        for line in tqdm(f, desc="Reading Queries JSONL"):
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
 
             pos_doc_id = str(entry.get('pos_doc_id', '')).strip()
-            queries_list = entry.get('queries', [])
-
-            # Retrieve original document
-            original_doc = doc_map.get(pos_doc_id)
-
-            if not original_doc:
+            if not pos_doc_id:
                 continue
 
-            # Extract unique terms from query_seg
-            unique_terms = set()
+            queries_list = entry.get('queries', [])
+
+            # Concatenate terms from all queries for this entry
             for q in queries_list:
                 seg = q.get('query_seg', '')
                 if seg:
-                    # Assuming query_seg is space-separated words/compounds
                     terms = seg.split()
-                    unique_terms.update(terms)
+                    doc_expansions[pos_doc_id].update(terms)
 
-            expansion_text = " ".join(unique_terms)
+    print(f"Collected expansions for {len(doc_expansions)} documents.")
 
-            # Tokenization & Truncation Logic
-            # Goal: len(doc) + len(expansion) <= 512
+    # 4. Initialize Tokenizer
+    print(f"Loading tokenizer: {args.model_name}...")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
-            # 1. Tokenize expansion first (Priority: Keep generated terms)
-            exp_tokens = tokenizer.tokenize(expansion_text)
-            num_exp = len(exp_tokens)
+    # 5. Build Expanded Documents
+    print(f"Building expanded documents and saving to {args.output_docs_tsv}...")
+    
+    exp_lens = []
 
-            # 2. Calculate remaining budget for document
-            budget_for_doc = args.max_length - num_exp
+    with open(args.output_docs_tsv, 'w', encoding='utf-8', newline='') as f_out:
+        writer = csv.writer(f_out, delimiter='\t')
+
+        processed_count = 0
+
+        # Iterate over documents that have expansions
+        for doc_id, expansion_terms_set in tqdm(doc_expansions.items(), desc="Expanding"):
+
+            # We need the RAW text to be the base
+            raw_doc_text = raw_docs_map.get(doc_id)
+
+            # We need the PRETOKENIZED text to check for duplicates
+            pretok_doc_text = pretok_docs_map.get(doc_id)
+
+            if not raw_doc_text:
+                continue # Cannot expand if we don't have the original doc
+
+            # --- DEDUPLICATION LOGIC ---
+            # If we have pretokenized text, use it to filter.
+            # If not (rare edge case), fall back to raw split, or just add everything.
+            existing_terms = set()
+            if pretok_doc_text:
+                existing_terms = set(pretok_doc_text.split())
+            else:
+                existing_terms = set(raw_doc_text.split())
+
+            # Filter: Keep query terms ONLY if they are NOT in the pretokenized document
+            unique_new_terms = [t for t in expansion_terms_set if t not in existing_terms]
+
+            # Join the unique expansion terms
+            expansion_str = " ".join(unique_new_terms)
+
+            # --- TOKENIZATION & TRUNCATION ---
+            # Strategy: Prioritize the Expansion (since it adds missing signals).
+            # If (Doc + Expansion) > 512, cut the Doc, keep the Expansion.
+
+            # 1. Tokenize the Expansion
+            exp_tokens = tokenizer.tokenize(expansion_str)
+
+            exp_lens.append(len(exp_tokens))
+
+            # 2. Calculate budget for the Raw Doc
+            budget_for_doc = args.max_length - len(exp_tokens)
 
             if budget_for_doc <= 0:
-                # Edge case: Expansion is massive (>512).
-                # Strategy: Keep only expansion, truncated to max_length.
+                # Expansion is huge, takes up entire budget.
                 final_tokens = exp_tokens[:args.max_length]
             else:
-                # Tokenize document
-                doc_tokens = tokenizer.tokenize(original_doc)
+                # Tokenize the Raw Doc
+                doc_tokens = tokenizer.tokenize(raw_doc_text)
 
-                # Truncate document to fit budget
+                # Truncate Doc to fit budget
                 truncated_doc_tokens = doc_tokens[:budget_for_doc]
 
-                # Combine: Doc + Expansion
+                # Combine: [Truncated Raw Doc] + [Expansion]
                 final_tokens = truncated_doc_tokens + exp_tokens
 
             # Decode back to string
             final_text = tokenizer.convert_tokens_to_string(final_tokens)
 
-            # Write to TSV: doc_id, expanded_text
-            writer.writerow([pos_doc_id, final_text])
+            # Write: doc_id, final_text
+            writer.writerow([doc_id, final_text])
+            processed_count += 1
 
-    print(f"Done! Files saved to:\n- {args.output_queries_tsv}\n- {args.output_docs_tsv}")
+    print("Expansion lengths stats:")
+    print(f"Mean: {sum(exp_lens) / len(exp_lens) if exp_lens else 0:.2f}")
+    print(f"Max: {max(exp_lens) if exp_lens else 0}")
+    print(f"Min: {min(exp_lens) if exp_lens else 0}")
+    print(f"Avg: {sum(exp_lens) / len(exp_lens) if exp_lens else 0:.2f}")
+    print(f"Done. Expanded and saved {processed_count} documents.")
 
 if __name__ == "__main__":
     main()
