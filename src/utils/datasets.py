@@ -29,14 +29,15 @@ class Queries:
         with open(path, encoding='utf-8') as f:
             for line in f:
                 qid, query = QueryParser.parse(line, self.dataset_type)
-                queries[qid] = query
+                # Ensure QID is a string
+                queries[str(qid)] = query
         return queries
 
     def __len__(self):
         return len(self.queries)
 
     def __getitem__(self, qid):
-        return self.queries[qid]
+        return self.queries[str(qid)]
 
     def __iter__(self):
         for qid in self.queries:
@@ -70,15 +71,15 @@ class Collection:
                 if idx >= offset + limit:
                     break
                 pid, passage, = line.strip().split('\t')
-                # assert int(pid) == idx, "Collection is not sorted by id"
-                collection[int(pid)] = passage
+                # CHANGED: Store PID as string
+                collection[str(pid)] = passage
         return collection
 
     def __len__(self):
         return len(self.collection)
 
     def __getitem__(self, pid):
-        return self.collection[pid]
+        return self.collection[str(pid)]
 
     def __iter__(self):
         for pid in self.collection:
@@ -115,8 +116,9 @@ class MSMarcoTriples(Dataset):
         triples = []
         with open(path, encoding='utf-8') as f:
             for line in tqdm(f):
-                qid, pos, neg = map(int, line.strip().split("\t"))
-                triples.append((qid, pos, neg))
+                # CHANGED: No longer mapping to int, keeping strings
+                qid, pos, neg = line.strip().split("\t")
+                triples.append((str(qid), str(pos), str(neg)))
         return triples
 
     def __len__(self):
@@ -146,9 +148,15 @@ class QueryRelevanceDataset:
         qrels = {}
         with open(path, 'r', encoding='utf-8') as f:
             for line in f:
-                qid, x, pid, y = map(int, line.strip().split('\t'))
+                # CHANGED: Read as strings first
+                parts = line.strip().split('\t')
+                qid = parts[0]
+                x = int(parts[1])
+                pid = parts[2]
+                y = int(parts[3])
+                
                 assert x == 0 and y == 1, "Qrels file is not in the expected format"
-                qrels.setdefault(qid, set()).add(pid)
+                qrels.setdefault(str(qid), set()).add(str(pid))
 
         average_positive_per_query = round(sum(len(qrels[qid]) for qid in qrels) / len(qrels), 2)
         logger.info(f"Loaded {len(qrels)} queries with {average_positive_per_query} positive passages/query on average")
@@ -158,13 +166,13 @@ class QueryRelevanceDataset:
     def __len__(self):
         return len(self.qrels)
 
-    def __getitem__(self, qid: int) -> Set:
+    def __getitem__(self, qid: str) -> Set:
         """
         Get the positive passage ids for a query id.
         :param qid: The query id.
         :return: Set of positive passage ids for the query.
         """
-        return self.qrels[qid]
+        return self.qrels[str(qid)]
 
     def keys(self):
         return self.qrels.keys()
@@ -179,7 +187,8 @@ class TopKDataset:
         with open(path, 'r', encoding='utf-8') as f:
             for line in f:
                 qid, pid, query, passage = line.strip().split('\t')
-                qid, pid = int(qid), int(pid)
+                # CHANGED: Keep qid and pid as strings
+                qid, pid = str(qid), str(pid)
 
                 assert (qid not in queries) or (queries[qid] == query), "TopK file is not in the expected format"
                 queries[qid] = query
@@ -207,7 +216,7 @@ class TopKDataset:
         :param qid: The query id.
         :return: The top k passage ids for the query.
         """
-        return self.top_k[qid]
+        return self.top_k[str(qid)]
 
     def keys(self):
         return self.top_k.keys()
@@ -219,8 +228,14 @@ class DistilHardNegatives(MSMarcoTriples):
         triples = []
         with open(path, encoding='utf-8') as f:
             for line in tqdm(f):
-                qid, pos_id, neg_id, pos_score, neg_score = line.strip().split("\t")
-                triples.append((int(qid), int(pos_id), int(neg_id), float(pos_score), float(neg_score)))
+                parts = line.strip().split("\t")
+                qid = parts[0]
+                pos_id = parts[1]
+                neg_id = parts[2]
+                pos_score = float(parts[3])
+                neg_score = float(parts[4])
+                # CHANGED: Keep IDs as strings
+                triples.append((str(qid), str(pos_id), str(neg_id), pos_score, neg_score))
         return triples
 
     def __getitem__(self, idx):
@@ -248,7 +263,12 @@ class DistillationScores:
         if self.qrels:
             lookup = []
             for qid in self.qrels.keys():
-                positive_docs = [(x, scores[qid].pop(x)) for x in self.qrels[qid]]
+                # Ensure qid is string for lookup
+                qid = str(qid)
+                if qid not in scores:
+                    continue
+
+                positive_docs = [(x, scores[qid].pop(x)) for x in self.qrels[qid] if x in scores[qid]]
                 negative_docs = list(scores[qid].items())
 
                 for pos_doc in positive_docs:
@@ -264,11 +284,7 @@ class DistillationScores:
             for qid in scores:
                 docs = list(scores[qid].items())
                 for i in range(0, len(docs), self.batch_size):
-                    # if i + self.batch_size <= len(docs):
-                    #     lookup.append((qid, docs[i:i + self.batch_size]))
-                    # else:
-                    #     break
-                    lookup.append((qid, docs[i:i + self.batch_size]))
+                    lookup.append((str(qid), docs[i:i + self.batch_size]))
             return lookup
 
     @staticmethod
@@ -282,7 +298,8 @@ class DistillationScores:
 
     def __getitem__(self, idx):
         qid, pid_score_list = self.dataset[idx]
-        return self.queries[qid], [(self.collection[pid], score) for pid, score in pid_score_list]
+        # CHANGED: Explicitly cast to string to match Queries and Collection
+        return self.queries[str(qid)], [(self.collection[str(pid)], score) for pid, score in pid_score_list]
 
 
 class RunFile:
@@ -291,6 +308,7 @@ class RunFile:
 
     def write(self, qid, pid, rank, score):
         with open(self.run_file_path, 'a', encoding='utf-8') as f:
+            # CHANGED: Ensure string format
             f.write(f'{qid}\t{pid}\t{rank}\t{score}\n')
 
     def writelines(self, qid, scores):
@@ -302,7 +320,8 @@ class RunFile:
         with open(self.run_file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 qid, pid, rank, score = line.strip().split('\t')
-                yield int(qid), int(pid), int(rank), float(score)
+                # CHANGED: Yield strings for IDs
+                yield str(qid), str(pid), int(rank), float(score)
 
 
 class TopKRunFile(RunFile):
@@ -321,7 +340,7 @@ class TopKRunFile(RunFile):
         return len(self.top_k)
 
     def __getitem__(self, qid):
-        return self.top_k[qid]
+        return self.top_k[str(qid)]
 
     def __iter__(self):
         for qid in self.top_k:
@@ -357,7 +376,8 @@ class QueryParser:
     @staticmethod
     def get_msmarco_item(query):
         qid, query = query.strip().split('\t')
-        return int(qid), query
+        # CHANGED: Return qid as string
+        return str(qid), query
 
     @staticmethod
     def get_beir_item(query):
