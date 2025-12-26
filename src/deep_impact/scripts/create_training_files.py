@@ -5,6 +5,12 @@ from collections import defaultdict
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
+def sanitize_text(text):
+    if not text:
+        return ""
+    # split() without arguments splits by any whitespace (including \n, \t, \r)
+    return " ".join(text.split()).strip()
+
 def load_raw_docs(csv_path):
     """Loads doc_id -> raw document text from CSV."""
     print(f"Loading raw documents from CSV: {csv_path}...")
@@ -43,7 +49,8 @@ def process_queries_mapping(input_csv, output_tsv):
 
         for row in tqdm(reader, desc="Processing Queries"):
             if 'query_id' in row and 'query' in row:
-                writer.writerow([row['query_id'], row['query']])
+                clean_q = sanitize_text(row['query'])
+                writer.writerow([row['query_id'], clean_q])
 
 def main():
     parser = argparse.ArgumentParser(description="Expand raw documents with unique query terms (deduplicated & cleaned).")
@@ -147,8 +154,11 @@ def main():
             # Create the expansion string
             expansion_str = " ".join(unique_new_terms_clean)
 
+            # Sanitize expansion string (for safety)
+            expansion_str_sanitized = sanitize_text(expansion_str)
+
             # Save the expansion terms to the CSV
-            exp_writer.writerow([doc_id, expansion_str])
+            exp_writer.writerow([doc_id, expansion_str_sanitized])
 
             # --- TOKENIZATION & TRUNCATION ---
             # Strategy: Prioritize Expansion.
@@ -173,10 +183,14 @@ def main():
                 final_tokens = truncated_doc_tokens + exp_tokens
 
             # Decode back to string
-            final_text = tokenizer.convert_tokens_to_string(final_tokens)
+            final_text_raw = tokenizer.convert_tokens_to_string(final_tokens)
+
+            # --- FINAL SANITIZATION ---
+            # Critical step to ensure TSV compatibility
+            final_text_clean = sanitize_text(final_text_raw)
 
             # Write to TSV
-            doc_writer.writerow([doc_id, final_text])
+            doc_writer.writerow([doc_id, final_text_clean])
             processed_count += 1
 
     print(f"Done. Expanded and saved {processed_count} documents.")
