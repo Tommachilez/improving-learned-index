@@ -46,7 +46,7 @@ def process_queries_mapping(input_csv, output_tsv):
                 writer.writerow([row['query_id'], row['query']])
 
 def main():
-    parser = argparse.ArgumentParser(description="Expand raw documents with unique query terms (deduplicated against pretokenized docs).")
+    parser = argparse.ArgumentParser(description="Expand raw documents with unique query terms (deduplicated & cleaned).")
 
     # Inputs
     parser.add_argument("--doc_mapping", required=True, help="Path to unique_doc_mapping.csv (Raw Documents)")
@@ -56,7 +56,8 @@ def main():
 
     # Outputs
     parser.add_argument("--output_queries_tsv", required=True, help="Output path for queries TSV")
-    parser.add_argument("--output_docs_tsv", required=True, help="Output path for expanded documents TSV")
+    parser.add_argument("--output_docs_tsv", required=True, help="Output path for expanded documents TSV (Final Model Input)")
+    parser.add_argument("--output_expansion_csv", required=True, help="Output path for Expansion Terms CSV (doc_id, added_terms)")
 
     # Config
     parser.add_argument("--model_name", default="xlm-roberta-base", help="Tokenizer model to use for length calculation.")
@@ -95,19 +96,23 @@ def main():
                     terms = seg.split()
                     doc_expansions[pos_doc_id].update(terms)
 
-    print(f"Collected expansions for {len(doc_expansions)} documents.")
-
     # 4. Initialize Tokenizer
     print(f"Loading tokenizer: {args.model_name}...")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
     # 5. Build Expanded Documents
-    print(f"Building expanded documents and saving to {args.output_docs_tsv}...")
-    
-    exp_lens = []
+    print(f"Building expanded documents...")
+    print(f"- Expanded Docs TSV: {args.output_docs_tsv}")
+    print(f"- Expansion Terms CSV: {args.output_expansion_csv}")
 
-    with open(args.output_docs_tsv, 'w', encoding='utf-8', newline='') as f_out:
-        writer = csv.writer(f_out, delimiter='\t')
+    with open(args.output_docs_tsv, 'w', encoding='utf-8', newline='') as f_doc_out, \
+         open(args.output_expansion_csv, 'w', encoding='utf-8', newline='') as f_exp_out:
+
+        doc_writer = csv.writer(f_doc_out, delimiter='\t')
+        exp_writer = csv.writer(f_exp_out)
+
+        # Header for the auxiliary CSV
+        exp_writer.writerow(["doc_id", "expansion_terms"])
 
         processed_count = 0
 
@@ -123,35 +128,39 @@ def main():
             if not raw_doc_text:
                 continue # Cannot expand if we don't have the original doc
 
-            # --- DEDUPLICATION LOGIC ---
-            # If we have pretokenized text, use it to filter.
-            # If not (rare edge case), fall back to raw split, or just add everything.
+            # --- DEDUPLICATION LOGIC (Keep Underscores for comparison) ---
             existing_terms = set()
             if pretok_doc_text:
                 existing_terms = set(pretok_doc_text.split())
             else:
+                # Fallback to raw split if pretokenized is missing
                 existing_terms = set(raw_doc_text.split())
 
             # Filter: Keep query terms ONLY if they are NOT in the pretokenized document
-            unique_new_terms = [t for t in expansion_terms_set if t not in existing_terms]
+            # Note: We compare "siêu_thị" vs "siêu_thị" here.
+            unique_new_terms_raw = [t for t in expansion_terms_set if t not in existing_terms]
 
-            # Join the unique expansion terms
-            expansion_str = " ".join(unique_new_terms)
+            # --- CLEANING LOGIC (Remove Underscores for Output) ---
+            # "siêu_thị" -> "siêu thị"
+            unique_new_terms_clean = [t.replace("_", " ") for t in unique_new_terms_raw]
+
+            # Create the expansion string
+            expansion_str = " ".join(unique_new_terms_clean)
+
+            # Save the expansion terms to the CSV
+            exp_writer.writerow([doc_id, expansion_str])
 
             # --- TOKENIZATION & TRUNCATION ---
-            # Strategy: Prioritize the Expansion (since it adds missing signals).
-            # If (Doc + Expansion) > 512, cut the Doc, keep the Expansion.
+            # Strategy: Prioritize Expansion.
 
             # 1. Tokenize the Expansion
             exp_tokens = tokenizer.tokenize(expansion_str)
-
-            exp_lens.append(len(exp_tokens))
 
             # 2. Calculate budget for the Raw Doc
             budget_for_doc = args.max_length - len(exp_tokens)
 
             if budget_for_doc <= 0:
-                # Expansion is huge, takes up entire budget.
+                # Expansion takes up entire budget
                 final_tokens = exp_tokens[:args.max_length]
             else:
                 # Tokenize the Raw Doc
@@ -166,15 +175,10 @@ def main():
             # Decode back to string
             final_text = tokenizer.convert_tokens_to_string(final_tokens)
 
-            # Write: doc_id, final_text
-            writer.writerow([doc_id, final_text])
+            # Write to TSV
+            doc_writer.writerow([doc_id, final_text])
             processed_count += 1
 
-    print("Expansion lengths stats:")
-    print(f"Mean: {sum(exp_lens) / len(exp_lens) if exp_lens else 0:.2f}")
-    print(f"Max: {max(exp_lens) if exp_lens else 0}")
-    print(f"Min: {min(exp_lens) if exp_lens else 0}")
-    print(f"Avg: {sum(exp_lens) / len(exp_lens) if exp_lens else 0:.2f}")
     print(f"Done. Expanded and saved {processed_count} documents.")
 
 if __name__ == "__main__":
