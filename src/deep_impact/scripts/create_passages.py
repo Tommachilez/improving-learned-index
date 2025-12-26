@@ -94,7 +94,6 @@ def main():
             print(f"Error: CSV must contain 'doc_id' and 'document' columns. Found: {reader.fieldnames}")
             exit(1)
 
-        writer = csv.writer(f_pass, delimiter='\t')
         global_index = 0
 
         for row in tqdm(reader, desc="Creating passages"):
@@ -117,10 +116,12 @@ def main():
                 else:
                     expanded_passage = p
 
-                # 1. Write to Passages TSV (IntID \t Text) for DeeperImpact
-                writer.writerow([global_index, expanded_passage])
+                # SANITIZE: Replace tabs and newlines to prevent format corruption
+                clean_passage = expanded_passage.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
 
-                # 2. Write to Mapping File (doc_id#passage_idx) for Evaluation
+                # Write manually: ID \t Text \n
+                f_pass.write(f"{global_index}\t{clean_passage}\n")
+
                 f_map.write(f"{doc_id}#{i}\n")
 
                 global_index += 1
