@@ -1,7 +1,7 @@
 import csv
 import json
 import argparse
-from collections import defaultdict
+from collections import defaultdict, Counter
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
@@ -69,6 +69,7 @@ def main():
     # Config
     parser.add_argument("--model_name", default="xlm-roberta-base", help="Tokenizer model to use for length calculation.")
     parser.add_argument("--max_length", type=int, default=512, help="Max total tokens (doc + expansion)")
+    parser.add_argument("--max_expansion_terms", type=int, default=100, help="Max unique expansion terms to append (Top-K frequency).")
 
     args = parser.parse_args()
 
@@ -81,7 +82,9 @@ def main():
 
     # 3. Aggregate Query Terms by Document ID
     print(f"Aggregating query terms from {args.pretokenized_queries}...")
-    doc_expansions = defaultdict(set) # doc_id -> set of unique terms
+
+    # CHANGE: Use Counter to track frequency, not just a Set
+    doc_expansions = defaultdict(Counter)
 
     with open(args.pretokenized_queries, 'r', encoding='utf-8') as f:
         for line in tqdm(f, desc="Reading Queries JSONL"):
@@ -111,6 +114,7 @@ def main():
     print(f"Building expanded documents...")
     print(f"- Expanded Docs TSV: {args.output_docs_tsv}")
     print(f"- Expansion Terms CSV: {args.output_expansion_csv}")
+    print(f"- Max Expansion Terms: {args.max_expansion_terms}")
 
     with open(args.output_docs_tsv, 'w', encoding='utf-8', newline='') as f_doc_out, \
          open(args.output_expansion_csv, 'w', encoding='utf-8', newline='') as f_exp_out:
@@ -124,7 +128,7 @@ def main():
         processed_count = 0
 
         # Iterate over documents that have expansions
-        for doc_id, expansion_terms_set in tqdm(doc_expansions.items(), desc="Expanding"):
+        for doc_id, term_counts in tqdm(doc_expansions.items(), desc="Expanding"):
 
             # We need the RAW text to be the base
             raw_doc_text = raw_docs_map.get(doc_id)
@@ -135,7 +139,7 @@ def main():
             if not raw_doc_text:
                 continue # Cannot expand if we don't have the original doc
 
-            # --- DEDUPLICATION LOGIC (Keep Underscores for comparison) ---
+            # --- DEDUPLICATION LOGIC ---
             existing_terms = set()
             if pretok_doc_text:
                 existing_terms = set(pretok_doc_text.split())
@@ -143,13 +147,22 @@ def main():
                 # Fallback to raw split if pretokenized is missing
                 existing_terms = set(raw_doc_text.split())
 
-            # Filter: Keep query terms ONLY if they are NOT in the pretokenized document
-            # Note: We compare "siêu_thị" vs "siêu_thị" here.
-            unique_new_terms_raw = [t for t in expansion_terms_set if t not in existing_terms]
+            # --- SELECTION LOGIC (Top-K Filtered) ---
+            # 1. Sort by frequency (Counter.most_common returns sorted list)
+            # 2. Filter: Only keep terms NOT in document
+            # 3. Limit: Stop after max_expansion_terms
+
+            selected_terms = []
+            for term, count in term_counts.most_common():
+                if term not in existing_terms:
+                    selected_terms.append(term)
+
+                if len(selected_terms) >= args.max_expansion_terms:
+                    break
 
             # --- CLEANING LOGIC (Remove Underscores for Output) ---
             # "siêu_thị" -> "siêu thị"
-            unique_new_terms_clean = [t.replace("_", " ") for t in unique_new_terms_raw]
+            unique_new_terms_clean = [t.replace("_", " ") for t in selected_terms]
 
             # Create the expansion string
             expansion_str = " ".join(unique_new_terms_clean)
@@ -161,7 +174,7 @@ def main():
             exp_writer.writerow([doc_id, expansion_str_sanitized])
 
             # --- TOKENIZATION & TRUNCATION ---
-            # Strategy: Prioritize Expansion.
+            # Strategy: [Document] + [Expansion]
 
             # 1. Tokenize the Expansion
             exp_tokens = tokenizer.tokenize(expansion_str)
@@ -169,8 +182,9 @@ def main():
             # 2. Calculate budget for the Raw Doc
             budget_for_doc = args.max_length - len(exp_tokens)
 
+            # Ensure at least some budget for doc
             if budget_for_doc <= 0:
-                # Expansion takes up entire budget
+                # Should rarely happen with a reasonable max_expansion_terms cap
                 final_tokens = exp_tokens[:args.max_length]
             else:
                 # Tokenize the Raw Doc
