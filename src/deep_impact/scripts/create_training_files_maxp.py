@@ -47,7 +47,7 @@ def main():
 
     # 2. Load Expansion Terms (Aggregated by Doc ID)
     print(f"Aggregating query terms from {args.pretokenized_queries}...")
-    doc_expansions = defaultdict(Counter) 
+    doc_expansions = defaultdict(Counter)
 
     with open(args.pretokenized_queries, 'r', encoding='utf-8') as f:
         for line in tqdm(f, desc="Reading Queries JSONL"):
@@ -125,7 +125,7 @@ def main():
                 existing_terms = set(passage_text.split())
 
                 selected_terms = []
-                for term, count in term_counts.most_common():
+                for term, _ in term_counts.most_common():
                     if term not in existing_terms:
                         selected_terms.append(term)
 
