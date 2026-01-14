@@ -4,7 +4,7 @@ from src.deep_impact.evaluation import Metrics
 from src.utils.defaults import DATA_DIR
 
 MRR_DEPTHS = [10]
-RECALL_DEPTHS = [10, 20, 50] + list(range(100, 1001, 100))
+RECALL_DEPTHS = [3, 10, 20, 50] + list(range(100, 1001, 100))
 
 if __name__ == "__main__":
     import argparse
